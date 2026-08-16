@@ -150,11 +150,20 @@ export function FileExplorer({
 
     if (loading) {
         return (
-            <div className="flex-1 p-6 flex justify-center items-center text-telegram-subtext flex-col gap-4">
-                <div className="w-8 h-8 border-4 border-telegram-primary border-t-transparent rounded-full animate-spin"></div>
-                Loading your files...
+            <div className="flex-1 p-6 overflow-auto">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 animate-pulse">
+                    {Array.from({ length: 12 }).map((_, i) => (
+                        <div key={i} className="aspect-[4/3] bg-telegram-surface border border-telegram-border rounded-xl p-4 flex flex-col justify-between">
+                            <div className="w-10 h-10 bg-telegram-hover rounded-lg mx-auto mt-2" />
+                            <div className="space-y-2 mt-4">
+                                <div className="h-3 bg-telegram-hover rounded w-3/4" />
+                                <div className="h-2 bg-telegram-hover rounded w-1/2" />
+                            </div>
+                        </div>
+                    ))}
+                </div>
             </div>
-        )
+        );
     }
 
     if (error) {
