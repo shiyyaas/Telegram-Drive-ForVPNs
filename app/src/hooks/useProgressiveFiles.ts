@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { api } from '../services/api';
 import { TelegramFile, FilePage } from '../types';
 import { formatBytes } from '../utils';
 
@@ -42,11 +42,7 @@ export function useProgressiveFiles(folderId: number | null, enabled: boolean) {
 
         try {
             // Page 1: Fast initial load (50 files)
-            const firstPage = await invoke<FilePage>('cmd_get_files', {
-                folderId,
-                offset: 0,
-                limit: FIRST_PAGE_SIZE,
-            });
+            const firstPage = await api.getFiles(folderId, 0, FIRST_PAGE_SIZE);
 
             // Check if folder changed while we were fetching
             if (session !== sessionRef.current) return;
@@ -64,11 +60,7 @@ export function useProgressiveFiles(folderId: number | null, enabled: boolean) {
                 while (hasMore) {
                     if (session !== sessionRef.current) return; // Cancelled
 
-                    const page = await invoke<FilePage>('cmd_get_files', {
-                        folderId,
-                        offset,
-                        limit: NEXT_PAGE_SIZE,
-                    });
+                    const page = await api.getFiles(folderId, offset, NEXT_PAGE_SIZE);
 
                     if (session !== sessionRef.current) return; // Cancelled
 

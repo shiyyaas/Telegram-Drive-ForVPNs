@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AnimatePresence } from 'framer-motion';
 import { useQuery } from '@tanstack/react-query';
-import { invoke } from '@tauri-apps/api/core';
+import { api } from '../services/api';
 import { toast } from 'sonner';
 
-import { TelegramFile, BandwidthStats } from '../types';
+import { TelegramFile } from '../types';
 import { COMMON_EXTENSION_SETS } from '../utils/fileExtensions';
 
 // Components
@@ -28,13 +28,10 @@ import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import { useProgressiveFiles } from '../hooks/useProgressiveFiles';
 
 export function Dashboard({ onLogout }: { onLogout: () => void }) {
-
-
     const {
         store, folders, activeFolderId, setActiveFolderId, isSyncing, isConnected,
         handleLogout, handleSyncFolders, handleCreateFolder, handleFolderDelete
     } = useTelegramConnection(onLogout);
-
 
     const [previewFile, setPreviewFile] = useState<TelegramFile | null>(null);
     const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
@@ -66,7 +63,6 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
         }
     }, [store, viewMode]);
 
-
     // Progressive file loading: 50 files immediately, then 200 at a time in background
     const { files: allFiles, isLoading, isLoadingMore, error: filesError, refetch } = useProgressiveFiles(
         activeFolderId, !!store
@@ -79,16 +75,14 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
 
     const { data: bandwidth } = useQuery({
         queryKey: ['bandwidth'],
-        queryFn: () => invoke<BandwidthStats>('cmd_get_bandwidth'),
+        queryFn: () => api.getBandwidth(),
         refetchInterval: 5000,
         enabled: !!store
     });
 
-
     const {
         handleDelete, handleBulkDelete, handleDownload, handleBulkDownload,
         handleBulkMove, handleDownloadFolder, handleGlobalSearch
-
     } = useFileOperations(activeFolderId, selectedIds, setSelectedIds, displayedFiles, refetch);
 
     const { uploadQueue, setUploadQueue, handleManualUpload, isDragging } = useFileUpload(activeFolderId, store, refetch);
@@ -99,7 +93,6 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
             i.status === 'pending' || i.status === 'uploading' ? { ...i, status: 'error' as const } : i
         ));
     }, [setUploadQueue]);
-
 
     const handleSelectAll = useCallback(() => {
         setSelectedIds(displayedFiles.map(f => f.id));
@@ -171,14 +164,12 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
         enabled: !previewFile && !showMoveModal // Disable when modals are open
     });
 
-
     useEffect(() => {
         setSelectedIds([]);
         setShowMoveModal(false);
         setSearchTerm("");
         setSearchResults([]);
     }, [activeFolderId]);
-
 
     useEffect(() => {
         if (searchTerm.length <= 2) {
@@ -195,9 +186,6 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
 
         return () => clearTimeout(timer);
     }, [searchTerm]);
-
-
-
 
     const handleFileClick = (e: React.MouseEvent, id: number) => {
         e.stopPropagation();
@@ -237,11 +225,7 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
             try {
                 const idsToMove = selectedIds.includes(fileId) ? selectedIds : [fileId];
 
-                await invoke('cmd_move_files', {
-                    messageIds: idsToMove,
-                    sourceFolderId: activeFolderId,
-                    targetFolderId: targetFolderId
-                });
+                await api.moveFiles(idsToMove, activeFolderId, targetFolderId);
 
                 refetch();
 
@@ -259,7 +243,6 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
     const currentFolderName = activeFolderId === null
         ? "Saved Messages"
         : folders.find(f => f.id === activeFolderId)?.name || "Folder";
-
 
     const handleRootDragOver = (e: React.DragEvent) => {
         if (internalDragRef.current) {
@@ -284,7 +267,6 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
             onDragOver={handleRootDragOver}
             onDragEnter={handleRootDragEnter}
         >
-
             <ExternalDropBlocker onUploadClick={handleManualUpload} />
 
             <AnimatePresence>
@@ -343,7 +325,6 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
                     </div>
                 )}
                 <FileExplorer
-
                     files={displayedFiles}
                     loading={isLoading || isSearching}
                     error={error}
@@ -376,7 +357,6 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
                     onClose={() => setPreviewFile(null)}
                 />
             )}
-
 
             <UploadQueue
                 items={uploadQueue}

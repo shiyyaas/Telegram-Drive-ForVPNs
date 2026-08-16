@@ -20,6 +20,8 @@ export interface FileMetadataRaw {
     icon_type: string;
 }
 
+export type FileMetadata = FileMetadataRaw;
+
 /** Paginated response from cmd_get_files */
 export interface FilePage {
     files: FileMetadataRaw[];
@@ -33,6 +35,8 @@ export interface TelegramFolder {
     name: string;
     parent_id?: number;
 }
+
+export type FolderMetadata = TelegramFolder;
 
 export interface QueueItem {
     id: string;

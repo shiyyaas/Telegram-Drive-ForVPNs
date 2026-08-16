@@ -1,10 +1,8 @@
 import { useState, useEffect } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { api } from "../services/api";
 import { motion, AnimatePresence } from "framer-motion";
-import { Phone, Key, Lock, ArrowRight, Settings, ShieldCheck, Sun, Moon, HelpCircle, ExternalLink, X, Globe, Heart } from "lucide-react";
-import { load } from '@tauri-apps/plugin-store';
-import { openUrl } from '@tauri-apps/plugin-opener';
-import { open } from '@tauri-apps/plugin-shell';
+import { Phone, Key, Lock, ArrowRight, Settings, Sun, Moon, HelpCircle, ExternalLink, X, Globe, Heart } from "lucide-react";
+import { load } from '../utils/store';
 import { useTheme } from '../context/ThemeContext';
 
 type Step = "setup" | "phone" | "code" | "password";
@@ -25,27 +23,8 @@ function AuthThemeToggle() {
         </button>
     );
 }
+
 export function AuthWizard({ onLogin }: { onLogin: () => void }) {
-    const isBrowser = typeof window !== 'undefined' && !('__TAURI_INTERNALS__' in window);
-
-    if (isBrowser) {
-        return (
-            <div className="flex flex-col items-center justify-center h-full max-w-lg mx-auto p-8 text-center">
-                <div className="w-20 h-20 bg-red-500/20 rounded-full flex items-center justify-center mb-6">
-                    <ShieldCheck className="w-10 h-10 text-red-500" />
-                </div>
-                <h1 className="text-2xl font-bold text-white mb-4">Desktop App Required</h1>
-                <p className="text-gray-400 mb-6 leading-relaxed">
-                    You are viewing the internal development server in a browser.
-                    This application cannot function here because it requires access to the system backend (Rust).
-                </p>
-                <div className="p-4 bg-gray-800 rounded-xl border border-gray-700 text-sm text-gray-300">
-                    Please open the <strong>Telegram Drive</strong> window in your OS taskbar/dock to continue.
-                </div>
-            </div>
-        )
-    }
-
     const [step, setStep] = useState<Step>("setup");
     const [loading, setLoading] = useState(false);
 
@@ -60,7 +39,6 @@ export function AuthWizard({ onLogin }: { onLogin: () => void }) {
     const [floodWait, setFloodWait] = useState<number | null>(null);
     const [showHelp, setShowHelp] = useState(false);
     const [showDonate, setShowDonate] = useState(false);
-
 
     useEffect(() => {
         if (!floodWait) return;
@@ -152,13 +130,9 @@ export function AuthWizard({ onLogin }: { onLogin: () => void }) {
             if (isNaN(idInt)) throw new Error("API ID must be a number");
 
             // Set proxy before connecting (critical for China VPN users)
-            await invoke("cmd_set_proxy", { proxyUrl: proxyUrl || null });
+            await api.setProxy(proxyUrl || null);
 
-            await invoke("cmd_auth_request_code", {
-                phone,
-                apiId: idInt,
-                apiHash: apiHash
-            });
+            await api.requestCode(phone, idInt, apiHash);
             setStep("code");
         } catch (err: unknown) {
             const msg = err instanceof Error ? err.message : JSON.stringify(err);
@@ -183,7 +157,7 @@ export function AuthWizard({ onLogin }: { onLogin: () => void }) {
         setLoading(true);
         setError(null);
         try {
-            const res = await invoke<{ success: boolean; next_step?: string }>("cmd_auth_sign_in", { code });
+            const res = await api.signIn(code);
             if (res.success) {
                 onLogin();
             } else if (res.next_step === "password") {
@@ -203,7 +177,7 @@ export function AuthWizard({ onLogin }: { onLogin: () => void }) {
         setLoading(true);
         setError(null);
         try {
-            const res = await invoke<{ success: boolean; next_step?: string }>("cmd_auth_check_password", { password });
+            const res = await api.checkPassword(password);
             if (res.success) {
                 onLogin();
             } else {
@@ -214,6 +188,10 @@ export function AuthWizard({ onLogin }: { onLogin: () => void }) {
         } finally {
             setLoading(false);
         }
+    };
+
+    const openLink = (url: string) => {
+        window.open(url, '_blank');
     };
 
     return (
@@ -260,8 +238,6 @@ export function AuthWizard({ onLogin }: { onLogin: () => void }) {
                         </motion.div>
                     ) : (
                         <>
-
-
                             {step === "setup" && (
                                 <motion.form
                                     key="setup"
@@ -341,7 +317,6 @@ export function AuthWizard({ onLogin }: { onLogin: () => void }) {
                                 </motion.form>
                             )}
 
-
                             {step === "phone" && (
                                 <motion.form
                                     key="phone"
@@ -380,7 +355,6 @@ export function AuthWizard({ onLogin }: { onLogin: () => void }) {
                                 </motion.form>
                             )}
 
-
                             {step === "code" && (
                                 <motion.form
                                     key="code"
@@ -418,7 +392,6 @@ export function AuthWizard({ onLogin }: { onLogin: () => void }) {
                                     </div>
                                 </motion.form>
                             )}
-
 
                             {step === "password" && (
                                 <motion.form
@@ -490,7 +463,6 @@ export function AuthWizard({ onLogin }: { onLogin: () => void }) {
                 </div>
             </motion.div>
 
-
             <AnimatePresence>
                 {showHelp && (
                     <motion.div
@@ -527,7 +499,7 @@ export function AuthWizard({ onLogin }: { onLogin: () => void }) {
                                         Go to Telegram's Developer Portal
                                     </h3>
                                     <p className="text-sm text-telegram-subtext ml-8">
-                                        Visit <button type="button" onClick={(e) => { e.preventDefault(); openUrl('https://my.telegram.org'); }} className="text-telegram-primary underline hover:text-telegram-text cursor-pointer">my.telegram.org</button> and log in with your phone number.
+                                        Visit <button type="button" onClick={(e) => { e.preventDefault(); openLink('https://my.telegram.org'); }} className="text-telegram-primary underline hover:text-telegram-text cursor-pointer">my.telegram.org</button> and log in with your phone number.
                                     </p>
                                 </div>
 
@@ -559,7 +531,7 @@ export function AuthWizard({ onLogin }: { onLogin: () => void }) {
 
                                 <button
                                     type="button"
-                                    onClick={(e) => { e.preventDefault(); openUrl("https://my.telegram.org"); }}
+                                    onClick={(e) => { e.preventDefault(); openLink("https://my.telegram.org"); }}
                                     className="w-full bg-telegram-primary text-white font-semibold py-3 rounded-xl flex items-center justify-center gap-2 hover:bg-telegram-primary/90 transition-colors"
                                 >
                                     <ExternalLink className="w-4 h-4" />
@@ -570,7 +542,6 @@ export function AuthWizard({ onLogin }: { onLogin: () => void }) {
                     </motion.div>
                 )}
             </AnimatePresence>
-
 
             <AnimatePresence>
                 {showDonate && (
@@ -588,7 +559,6 @@ export function AuthWizard({ onLogin }: { onLogin: () => void }) {
                             className="glass bg-telegram-surface border border-telegram-border rounded-2xl p-6 max-w-sm w-full shadow-2xl"
                             onClick={(e) => e.stopPropagation()}
                         >
-                            {/* Header with perfectly centered text and right-aligned close button */}
                             <div className="relative flex items-center justify-center mb-6">
                                 <h2 className="text-xl font-bold text-telegram-text text-center">
                                     Support the Project
@@ -604,18 +574,15 @@ export function AuthWizard({ onLogin }: { onLogin: () => void }) {
                                 </p>
 
                                 <div className="space-y-4">
-                                    {/* PayPal Button */}
-                                    <a href="#" onClick={(e) => { e.preventDefault(); open('https://www.paypal.me/Caamer20'); }} className="block hover:opacity-80 transition-opacity">
+                                    <a href="#" onClick={(e) => { e.preventDefault(); openLink('https://www.paypal.me/Caamer20'); }} className="block hover:opacity-80 transition-opacity">
                                         <img src="https://raw.githubusercontent.com/stefan-niedermann/paypal-donate-button/master/paypal-donate-button.png" alt="Donate with PayPal" width="200" className="mx-auto" />
                                     </a>
 
-                                    {/* Litecoin Button */}
-                                    <a href="#" onClick={(e) => { e.preventDefault(); open('https://link.trustwallet.com/send?address=ltc1q6wkr5ac4u0pxx4hx7xgwn0gsaku25ws0df73rp&asset=c2'); }} className="block hover:opacity-80 transition-opacity">
+                                    <a href="#" onClick={(e) => { e.preventDefault(); openLink('https://link.trustwallet.com/send?address=ltc1q6wkr5ac4u0pxx4hx7xgwn0gsaku25ws0df73rp&asset=c2'); }} className="block hover:opacity-80 transition-opacity">
                                         <img src="https://img.shields.io/badge/Donate-LTC-345D9D?style=for-the-badge&logo=litecoin&logoColor=white" alt="Donate LTC" className="mx-auto h-[28px]" />
                                     </a>
 
-                                    {/* Bitcoin Button */}
-                                    <a href="#" onClick={(e) => { e.preventDefault(); open('https://link.trustwallet.com/send?asset=c0&address=bc1q5pt7m2fk6w0dzsnf6vvd5k6nw5k44785286ujy'); }} className="block hover:opacity-80 transition-opacity">
+                                    <a href="#" onClick={(e) => { e.preventDefault(); openLink('https://link.trustwallet.com/send?asset=c0&address=bc1q5pt7m2fk6w0dzsnf6vvd5k6nw5k44785286ujy'); }} className="block hover:opacity-80 transition-opacity">
                                         <img src="https://img.shields.io/badge/Donate-BTC-F7931A?style=for-the-badge&logo=bitcoin&logoColor=white" alt="Donate BTC" className="mx-auto h-[28px]" />
                                     </a>
                                 </div>
