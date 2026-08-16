@@ -27,6 +27,12 @@ pub struct BandwidthManager {
     pub limit: u64, // Daily limit in bytes
 }
 
+impl Default for BandwidthManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl BandwidthManager {
     pub fn new() -> Self {
         let app_data_dir = std::env::var("DATA_DIR")
@@ -54,21 +60,22 @@ impl BandwidthManager {
 
     pub fn check_and_reset(&self) {
         let today = Local::now().format("%Y-%m-%d").to_string();
-        let mut stats = self.stats.lock().unwrap();
+        let mut stats = self.stats.lock().unwrap_or_else(|e| e.into_inner());
         if stats.date != today {
             println!("[Bandwidth] New day detected. Resetting stats. Old date: {}, New date: {}", stats.date, today);
             stats.date = today;
             stats.up_bytes = 0;
             stats.down_bytes = 0;
             // Save immediately
+            let current_stats = stats.clone();
             drop(stats);
-            if let Ok(json) = serde_json::to_string(&self.stats.lock().unwrap().clone()) { let _ = fs::write(&self.file_path, json); }
+            if let Ok(json) = serde_json::to_string(&current_stats) { let _ = fs::write(&self.file_path, json); }
         }
     }
 
     pub fn can_transfer(&self, bytes: u64) -> Result<(), String> {
         self.check_and_reset();
-        let stats = self.stats.lock().unwrap();
+        let stats = self.stats.lock().unwrap_or_else(|e| e.into_inner());
         let total = stats.up_bytes + stats.down_bytes + bytes;
         if total > self.limit {
             return Err(format!("Daily bandwidth limit ({}) exceeded! Used: {}", self.format_bytes(self.limit), self.format_bytes(total)));
@@ -78,14 +85,14 @@ impl BandwidthManager {
 
     pub fn add_up(&self, bytes: u64) {
         self.check_and_reset();
-        let mut stats = self.stats.lock().unwrap();
+        let mut stats = self.stats.lock().unwrap_or_else(|e| e.into_inner());
         stats.up_bytes += bytes;
         self.save_locked(&stats);
     }
     
     pub fn add_down(&self, bytes: u64) {
         self.check_and_reset();
-        let mut stats = self.stats.lock().unwrap();
+        let mut stats = self.stats.lock().unwrap_or_else(|e| e.into_inner());
         stats.down_bytes += bytes;
         self.save_locked(&stats);
     }
@@ -98,7 +105,7 @@ impl BandwidthManager {
     
     pub fn get_stats(&self) -> BandwidthStats {
         self.check_and_reset();
-        self.stats.lock().unwrap().clone()
+        self.stats.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
     fn format_bytes(&self, bytes: u64) -> String {

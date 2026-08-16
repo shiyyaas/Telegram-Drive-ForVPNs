@@ -25,7 +25,10 @@ pub async fn cmd_create_folder(
   };
 
   if client_opt.is_none() {
-    let mock_id = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
+    let mock_id = std::time::SystemTime::now()
+      .duration_since(std::time::UNIX_EPOCH)
+      .map(|d| d.as_secs() as i64)
+      .unwrap_or_else(|_| chrono::Utc::now().timestamp());
     log::info!("[MOCK] Created folder '{}' with ID {}", name, mock_id);
     return (StatusCode::OK, Json(FolderMetadata {
       id: mock_id,
@@ -170,7 +173,7 @@ pub async fn cmd_upload_file(
       let p = path_clone.clone();
       let c = client_clone.clone();
       async move {
-        c.upload_file(&p).await.map_err(|e| map_error(e))
+        c.upload_file(&p).await.map_err(map_error)
       }
     },
     2,
@@ -283,7 +286,7 @@ pub async fn cmd_download_file(
           let c2 = c.clone();
           let m2 = m.clone();
           async move {
-            c2.download_media(&m2, &sp2).await.map_err(|e| map_error(e))
+            c2.download_media(&m2, &sp2).await.map_err(map_error)
           }
         },
         2,
@@ -441,7 +444,7 @@ pub async fn cmd_get_files(
   (StatusCode::OK, Json(FilePage {
     files,
     has_more: !hit_end,
-    next_offset: offset + skipped as i32 - offset + messages_seen,
+    next_offset: offset + messages_seen,
     total_fetched: fetched_count,
   })).into_response()
 }

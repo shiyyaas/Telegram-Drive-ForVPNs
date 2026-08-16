@@ -25,7 +25,7 @@ pub async fn ensure_client_initialized(
     }
 
     let should_wait = {
-        let mut shutdown_guard = state.runner_shutdown.lock().unwrap();
+        let mut shutdown_guard = state.runner_shutdown.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(shutdown_tx) = shutdown_guard.take() {
             log::info!("Signaling old runner to shutdown...");
             let _ = shutdown_tx.send(());
@@ -82,7 +82,7 @@ pub async fn ensure_client_initialized(
     let client = Client::new(&pool);
     
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
-    *state.runner_shutdown.lock().unwrap() = Some(shutdown_tx);
+    *state.runner_shutdown.lock().unwrap_or_else(|e| e.into_inner()) = Some(shutdown_tx);
     
     let SenderPool { runner, .. } = pool;
     tokio::spawn(async move {
@@ -168,7 +168,7 @@ pub async fn cmd_logout(
     log::info!("Logging out...");
     
     {
-        let mut shutdown_guard = state.runner_shutdown.lock().unwrap();
+        let mut shutdown_guard = state.runner_shutdown.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(shutdown_tx) = shutdown_guard.take() {
             log::info!("Signaling runner shutdown for logout...");
             let _ = shutdown_tx.send(());
