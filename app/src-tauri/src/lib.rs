@@ -11,6 +11,7 @@ use axum::{
     Router,
 };
 use tower_http::{
+    compression::CompressionLayer,
     cors::CorsLayer,
     services::{ServeDir, ServeFile},
 };
@@ -59,6 +60,7 @@ pub fn create_router(telegram_state: TelegramState, bw_manager: Arc<BandwidthMan
         .nest("/api", api_router)
         .fallback_service(serve_dir)
         .layer(CorsLayer::permissive())
+        .layer(CompressionLayer::new())
 }
 
 pub fn init_telegram_state() -> TelegramState {
