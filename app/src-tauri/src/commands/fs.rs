@@ -1,38 +1,43 @@
-use tauri::State;
 use grammers_client::types::{Media, Peer};
 use grammers_client::InputMessage;
 use grammers_tl_types as tl;
-use crate::TelegramState;
-use crate::models::{FolderMetadata, FileMetadata};
-use crate::bandwidth::BandwidthManager;
+use serde::Deserialize;
+use axum::{extract::{State, Query}, response::IntoResponse, Json, http::StatusCode};
+
+use crate::commands::AppState;
+use crate::models::{FolderMetadata, FileMetadata, FilePage};
 use crate::commands::utils::{resolve_peer, ensure_cache_warm, map_error};
 use crate::commands::retry::with_retry;
 
-#[tauri::command]
+#[derive(Deserialize)]
+pub struct CreateFolderPayload {
+  pub name: String,
+}
+
 pub async fn cmd_create_folder(
-  name: String,
-  state: State<'_, TelegramState>,
-) -> Result<FolderMetadata, String> {
+  State(app_state): State<AppState>,
+  Json(payload): Json<CreateFolderPayload>,
+) -> impl IntoResponse {
+  let state = &app_state.telegram;
+  let name = payload.name;
   let client_opt = {
     state.client.lock().await.clone()
   };
 
-  // --- MOCK ---
   if client_opt.is_none() {
     let mock_id = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
     log::info!("[MOCK] Created folder '{}' with ID {}", name, mock_id);
-    return Ok(FolderMetadata {
+    return (StatusCode::OK, Json(FolderMetadata {
       id: mock_id,
       name,
       parent_id: None,
-    });
+    })).into_response();
   }
-  // -----------
 
   let client = client_opt.unwrap();
   log::info!("Creating Telegram Channel: {}", name);
 
-  let result = client.invoke(&tl::functions::channels::CreateChannel {
+  let result = match client.invoke(&tl::functions::channels::CreateChannel {
     broadcast: true,
     megagroup: false,
     title: format!("{} [TD]", name),
@@ -42,24 +47,24 @@ pub async fn cmd_create_folder(
     for_import: false,
     forum: false,
     ttl_period: None,
-  }).await.map_err(map_error)?;
+  }).await {
+    Ok(res) => res,
+    Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, map_error(e)).into_response(),
+  };
 
   let (chat_id, access_hash) = match result {
     tl::enums::Updates::Updates(u) => {
-      let chat = u.chats.first().ok_or("No chat in updates")?;
+      let chat = match u.chats.first() {
+        Some(c) => c,
+        None => return (StatusCode::INTERNAL_SERVER_ERROR, "No chat in updates").into_response(),
+      };
       match chat {
         tl::enums::Chat::Channel(c) => (c.id, c.access_hash.unwrap_or(0)),
-        _ => return Err("Created chat is not a channel".to_string()),
+        _ => return (StatusCode::BAD_REQUEST, "Created chat is not a channel").into_response(),
       }
     },
-    _ => return Err("Unexpected response (not Updates::Updates)".to_string()),
+    _ => return (StatusCode::INTERNAL_SERVER_ERROR, "Unexpected response (not Updates::Updates)").into_response(),
   };
-
-  // Explicitly Disable TTL
-  let _input_channel = tl::enums::InputChannel::Channel(tl::types::InputChannel {
-    channel_id: chat_id,
-    access_hash,
-  });
 
   let _ = client.invoke(&tl::functions::messages::SetHistoryTtl {
     peer: tl::enums::InputPeer::Channel(tl::types::InputPeerChannel {
@@ -69,55 +74,82 @@ pub async fn cmd_create_folder(
     period: 0,
   }).await;
 
-  Ok(FolderMetadata {
+  (StatusCode::OK, Json(FolderMetadata {
     id: chat_id,
     name,
     parent_id: None,
-  })
+  })).into_response()
 }
 
-#[tauri::command]
+#[derive(Deserialize)]
+pub struct DeleteFolderPayload {
+  pub folder_id: i64,
+}
+
 pub async fn cmd_delete_folder(
-  folder_id: i64,
-  state: State<'_, TelegramState>,
-) -> Result<bool, String> {
+  State(app_state): State<AppState>,
+  Json(payload): Json<DeleteFolderPayload>,
+) -> impl IntoResponse {
+  let state = &app_state.telegram;
+  let folder_id = payload.folder_id;
   let client_opt = {
     state.client.lock().await.clone()
   };
   if client_opt.is_none() {
     log::info!("[MOCK] Deleted folder ID {}", folder_id);
-    return Ok(true);
+    return (StatusCode::OK, Json(true)).into_response();
   }
   let client = client_opt.unwrap();
   log::info!("Deleting folder/channel: {}", folder_id);
-  let peer = resolve_peer(&client, Some(folder_id), &state).await?;
+  let peer = match resolve_peer(&client, Some(folder_id), state).await {
+    Ok(p) => p,
+    Err(e) => return (StatusCode::BAD_REQUEST, e).into_response(),
+  };
   let input_channel = match peer {
     Peer::Channel(c) => {
       let chan = &c.raw;
+      let access_hash = match chan.access_hash {
+        Some(h) => h,
+        None => return (StatusCode::BAD_REQUEST, "No access hash for channel").into_response(),
+      };
       tl::enums::InputChannel::Channel(tl::types::InputChannel {
         channel_id: chan.id,
-        access_hash: chan.access_hash.ok_or("No access hash for channel")?,
+        access_hash,
       })
     },
-    _ => return Err("Only channels (folders) can be deleted.".to_string()),
+    _ => return (StatusCode::BAD_REQUEST, "Only channels (folders) can be deleted.").into_response(),
   };
-  client.invoke(&tl::functions::channels::DeleteChannel {
+  if let Err(e) = client.invoke(&tl::functions::channels::DeleteChannel {
     channel: input_channel,
-  }).await.map_err(|e| format!("Failed to delete channel: {}", e))?;
-  // Remove from peer cache
+  }).await {
+    return (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to delete channel: {}", e)).into_response();
+  }
   state.peer_cache.lock().await.remove(&folder_id);
-  Ok(true)
+  (StatusCode::OK, Json(true)).into_response()
 }
 
-#[tauri::command]
+#[derive(Deserialize)]
+pub struct UploadFilePayload {
+  pub path: String,
+  pub folder_id: Option<i64>,
+}
+
 pub async fn cmd_upload_file(
-  path: String,
-  folder_id: Option<i64>,
-  state: State<'_, TelegramState>,
-  bw_state: State<'_, BandwidthManager>,
-) -> Result<String, String> {
-  let size = std::fs::metadata(&path).map_err(|e| e.to_string())?.len();
-  bw_state.can_transfer(size)?;
+  State(app_state): State<AppState>,
+  Json(payload): Json<UploadFilePayload>,
+) -> impl IntoResponse {
+  let state = &app_state.telegram;
+  let bw_state = &app_state.bandwidth;
+  let path = payload.path;
+  let folder_id = payload.folder_id;
+  let size = match std::fs::metadata(&path) {
+    Ok(m) => m.len(),
+    Err(e) => return (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
+  };
+
+  if let Err(e) = bw_state.can_transfer(size) {
+    return (StatusCode::FORBIDDEN, e).into_response();
+  }
 
   let client_opt = {
     state.client.lock().await.clone()
@@ -126,84 +158,108 @@ pub async fn cmd_upload_file(
   if client_opt.is_none() {
     log::info!("[MOCK] Uploaded file {} to {:?}", path, folder_id);
     bw_state.add_up(size);
-    return Ok("Mock upload successful".to_string());
+    return (StatusCode::OK, Json("Mock upload successful".to_string())).into_response();
   }
 
   let client = client_opt.unwrap();
   let path_clone = path.clone();
   let client_clone = client.clone();
 
-  // Retry upload for VPN resilience
-  let uploaded_file = {
-    let pc = path_clone.clone();
-    let cc = client_clone.clone();
-    with_retry(
-      || {
-        let p = pc.clone();
-        let c = cc.clone();
-        async move {
-          let handle = tauri::async_runtime::spawn(async move {
-            c.upload_file(&p).await
-          });
-          handle.await
-            .map_err(|e| format!("Task join error: {}", e))?
-            .map_err(|e| map_error(e))
-        }
-      },
-      2, // 2 retries
-      2000, // 2s base delay
-    ).await?
+  let uploaded_file = match with_retry(
+    || {
+      let p = path_clone.clone();
+      let c = client_clone.clone();
+      async move {
+        c.upload_file(&p).await.map_err(|e| map_error(e))
+      }
+    },
+    2,
+    2000,
+  ).await {
+    Ok(file) => file,
+    Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e).into_response(),
   };
 
   let message = InputMessage::new().text("").file(uploaded_file);
-  let peer = resolve_peer(&client, folder_id, &state).await?;
-  client.send_message(&peer, message).await.map_err(map_error)?;
+  let peer = match resolve_peer(&client, folder_id, state).await {
+    Ok(p) => p,
+    Err(e) => return (StatusCode::BAD_REQUEST, e).into_response(),
+  };
+  if let Err(e) = client.send_message(&peer, message).await {
+    return (StatusCode::INTERNAL_SERVER_ERROR, map_error(e)).into_response();
+  }
   bw_state.add_up(size);
-  Ok("File uploaded successfully".to_string())
+  (StatusCode::OK, Json("File uploaded successfully".to_string())).into_response()
 }
 
-#[tauri::command]
+#[derive(Deserialize)]
+pub struct DeleteFilePayload {
+  pub message_id: i32,
+  pub folder_id: Option<i64>,
+}
+
 pub async fn cmd_delete_file(
-  message_id: i32,
-  folder_id: Option<i64>,
-  state: State<'_, TelegramState>,
-) -> Result<bool, String> {
+  State(app_state): State<AppState>,
+  Json(payload): Json<DeleteFilePayload>,
+) -> impl IntoResponse {
+  let state = &app_state.telegram;
+  let message_id = payload.message_id;
+  let folder_id = payload.folder_id;
   let client_opt = {
     state.client.lock().await.clone()
   };
   if client_opt.is_none() {
     log::info!("[MOCK] Deleted message {} from folder {:?}", message_id, folder_id);
-    return Ok(true);
+    return (StatusCode::OK, Json(true)).into_response();
   }
   let client = client_opt.unwrap();
-  let peer = resolve_peer(&client, folder_id, &state).await?;
-  client.delete_messages(&peer, &[message_id]).await.map_err(|e| e.to_string())?;
-  Ok(true)
+  let peer = match resolve_peer(&client, folder_id, state).await {
+    Ok(p) => p,
+    Err(e) => return (StatusCode::BAD_REQUEST, e).into_response(),
+  };
+  if let Err(e) = client.delete_messages(&peer, &[message_id]).await {
+    return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response();
+  }
+  (StatusCode::OK, Json(true)).into_response()
 }
 
-#[tauri::command]
+#[derive(Deserialize)]
+pub struct DownloadFilePayload {
+  pub message_id: i32,
+  pub save_path: String,
+  pub folder_id: Option<i64>,
+}
+
 pub async fn cmd_download_file(
-  message_id: i32,
-  save_path: String,
-  folder_id: Option<i64>,
-  state: State<'_, TelegramState>,
-  bw_state: State<'_, BandwidthManager>,
-) -> Result<String, String> {
+  State(app_state): State<AppState>,
+  Json(payload): Json<DownloadFilePayload>,
+) -> impl IntoResponse {
+  let state = &app_state.telegram;
+  let bw_state = &app_state.bandwidth;
+  let message_id = payload.message_id;
+  let save_path = payload.save_path;
+  let folder_id = payload.folder_id;
+
   let client_opt = {
     state.client.lock().await.clone()
   };
   if client_opt.is_none() {
     log::info!("[MOCK] Downloaded message {} from {:?} to {}", message_id, folder_id, save_path);
     if let Err(e) = std::fs::write(&save_path, b"Mock Content") {
-      return Err(e.to_string());
+      return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response();
     }
-    return Ok("Download successful".to_string());
+    return (StatusCode::OK, Json("Download successful".to_string())).into_response();
   }
   let client = client_opt.unwrap();
-  let peer = resolve_peer(&client, folder_id, &state).await?;
-  // Direct message fetch instead of iterating all messages (critical for VPN latency)
-  let messages = client.get_messages_by_id(&peer, &[message_id])
-    .await.map_err(|e| e.to_string())?;
+  let peer = match resolve_peer(&client, folder_id, state).await {
+    Ok(p) => p,
+    Err(e) => return (StatusCode::BAD_REQUEST, e).into_response(),
+  };
+
+  let messages = match client.get_messages_by_id(&peer, &[message_id]).await {
+    Ok(m) => m,
+    Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+  };
   let target_message = messages.into_iter().next().flatten();
 
   if let Some(msg) = target_message {
@@ -214,13 +270,14 @@ pub async fn cmd_download_file(
         _ => 0,
       };
 
-      bw_state.can_transfer(size)?;
+      if let Err(e) = bw_state.can_transfer(size) {
+        return (StatusCode::FORBIDDEN, e).into_response();
+      }
 
-      // Retry download for VPN resilience
       let sp = save_path.clone();
       let c = client.clone();
       let m = media.clone();
-      with_retry(
+      if let Err(e) = with_retry(
         || {
           let sp2 = sp.clone();
           let c2 = c.clone();
@@ -229,26 +286,37 @@ pub async fn cmd_download_file(
             c2.download_media(&m2, &sp2).await.map_err(|e| map_error(e))
           }
         },
-        2, // 2 retries
-        2000, // 2s base delay
-      ).await?;
+        2,
+        2000,
+      ).await {
+        return (StatusCode::INTERNAL_SERVER_ERROR, e).into_response();
+      }
 
       bw_state.add_down(size);
-      return Ok("Download successful".to_string());
+      return (StatusCode::OK, Json("Download successful".to_string())).into_response();
     }
   }
-  Err("Not found".to_string())
+  (StatusCode::NOT_FOUND, "Not found".to_string()).into_response()
 }
 
-#[tauri::command]
+#[derive(Deserialize)]
+pub struct MoveFilesPayload {
+  pub message_ids: Vec<i32>,
+  pub source_folder_id: Option<i64>,
+  pub target_folder_id: Option<i64>,
+}
+
 pub async fn cmd_move_files(
-  message_ids: Vec<i32>,
-  source_folder_id: Option<i64>,
-  target_folder_id: Option<i64>,
-  state: State<'_, TelegramState>,
-) -> Result<bool, String> {
+  State(app_state): State<AppState>,
+  Json(payload): Json<MoveFilesPayload>,
+) -> impl IntoResponse {
+  let state = &app_state.telegram;
+  let message_ids = payload.message_ids;
+  let source_folder_id = payload.source_folder_id;
+  let target_folder_id = payload.target_folder_id;
+
   if source_folder_id == target_folder_id {
-    return Ok(true);
+    return (StatusCode::OK, Json(true)).into_response();
   }
 
   let client_opt = {
@@ -256,70 +324,79 @@ pub async fn cmd_move_files(
   };
   if client_opt.is_none() {
     log::info!("[MOCK] Moved msgs {:?} from {:?} to {:?}", message_ids, source_folder_id, target_folder_id);
-    return Ok(true);
+    return (StatusCode::OK, Json(true)).into_response();
   }
   let client = client_opt.unwrap();
 
-  // Warm the peer cache in one pass so both resolve_peer calls below are O(1) hits.
-  ensure_cache_warm(&client, &state).await;
+  ensure_cache_warm(&client, state).await;
 
-  let source_peer = resolve_peer(&client, source_folder_id, &state).await?;
-  let target_peer = resolve_peer(&client, target_folder_id, &state).await?;
+  let source_peer = match resolve_peer(&client, source_folder_id, state).await {
+    Ok(p) => p,
+    Err(e) => return (StatusCode::BAD_REQUEST, e).into_response(),
+  };
+  let target_peer = match resolve_peer(&client, target_folder_id, state).await {
+    Ok(p) => p,
+    Err(e) => return (StatusCode::BAD_REQUEST, e).into_response(),
+  };
 
-  match client.forward_messages(&target_peer, &message_ids, &source_peer).await {
-    Ok(_) => {},
-    Err(e) => return Err(format!("Forward failed: {}", e)),
+  if let Err(e) = client.forward_messages(&target_peer, &message_ids, &source_peer).await {
+    return (StatusCode::INTERNAL_SERVER_ERROR, format!("Forward failed: {}", e)).into_response();
   }
-  match client.delete_messages(&source_peer, &message_ids).await {
-    Ok(_) => {},
-    Err(e) => return Err(format!("Delete original failed: {}", e)),
+  if let Err(e) = client.delete_messages(&source_peer, &message_ids).await {
+    return (StatusCode::INTERNAL_SERVER_ERROR, format!("Delete original failed: {}", e)).into_response();
   }
-  Ok(true)
+  (StatusCode::OK, Json(true)).into_response()
 }
 
-#[tauri::command]
+#[derive(Deserialize)]
+pub struct GetFilesParams {
+  pub folder_id: Option<i64>,
+  pub offset: Option<i32>,
+  pub limit: Option<i32>,
+}
+
 pub async fn cmd_get_files(
-  folder_id: Option<i64>,
-  offset: Option<i32>,
-  limit: Option<i32>,
-  state: State<'_, TelegramState>,
-) -> Result<crate::models::FilePage, String> {
-  let offset = offset.unwrap_or(0);
-  let limit = limit.unwrap_or(50).min(500); // Cap at 500 per page
+  State(app_state): State<AppState>,
+  Query(params): Query<GetFilesParams>,
+) -> impl IntoResponse {
+  let state = &app_state.telegram;
+  let folder_id = params.folder_id;
+  let offset = params.offset.unwrap_or(0);
+  let limit = params.limit.unwrap_or(50).min(500);
 
   let client_opt = { state.client.lock().await.clone() };
   if client_opt.is_none() {
     log::info!("[MOCK] Returning mock files for folder {:?}", folder_id);
-    return Ok(crate::models::FilePage {
+    return (StatusCode::OK, Json(FilePage {
       files: Vec::new(),
       has_more: false,
       next_offset: 0,
       total_fetched: 0,
-    });
+    })).into_response();
   }
   let client = client_opt.unwrap();
-  let peer = resolve_peer(&client, folder_id, &state).await?;
+  let peer = match resolve_peer(&client, folder_id, state).await {
+    Ok(p) => p,
+    Err(e) => return (StatusCode::BAD_REQUEST, e).into_response(),
+  };
   let mut msgs = client.iter_messages(&peer);
 
-  // Skip to offset (grammers doesn't support offset natively on iter_messages)
   let mut skipped = 0;
   while skipped < offset {
     match msgs.next().await {
       Ok(Some(_)) => skipped += 1,
       Ok(None) => {
-        // Already past the end
-        return Ok(crate::models::FilePage {
+        return (StatusCode::OK, Json(FilePage {
           files: Vec::new(),
           has_more: false,
           next_offset: offset,
           total_fetched: 0,
-        });
+        })).into_response();
       },
-      Err(e) => return Err(e.to_string()),
+      Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     }
   }
 
-  // Collect up to `limit` files
   let mut files = Vec::new();
   let mut messages_seen = 0;
   let mut hit_end = false;
@@ -356,20 +433,19 @@ pub async fn cmd_get_files(
         }
       },
       Ok(None) => { hit_end = true; break; },
-      Err(e) => return Err(e.to_string()),
+      Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     }
   }
 
   let fetched_count = files.len() as i32;
-  Ok(crate::models::FilePage {
+  (StatusCode::OK, Json(FilePage {
     files,
     has_more: !hit_end,
     next_offset: offset + skipped as i32 - offset + messages_seen,
     total_fetched: fetched_count,
-  })
+  })).into_response()
 }
 
-/// Extract FileMetadata from a raw TL message (shared by Messages and Slice variants)
 fn extract_file_from_message(m: &tl::types::Message) -> Option<FileMetadata> {
   let media = m.media.as_ref()?;
   let doc_media = match media {
@@ -410,20 +486,26 @@ fn extract_file_from_message(m: &tl::types::Message) -> Option<FileMetadata> {
   })
 }
 
-#[tauri::command]
+#[derive(Deserialize)]
+pub struct SearchGlobalParams {
+  pub query: String,
+}
+
 pub async fn cmd_search_global(
-  query: String,
-  state: State<'_, TelegramState>,
-) -> Result<Vec<FileMetadata>, String> {
+  State(app_state): State<AppState>,
+  Query(params): Query<SearchGlobalParams>,
+) -> impl IntoResponse {
+  let state = &app_state.telegram;
+  let query = params.query;
   let client_opt = { state.client.lock().await.clone() };
   if client_opt.is_none() {
-    return Ok(Vec::new());
+    return (StatusCode::OK, Json(Vec::<FileMetadata>::new())).into_response();
   }
   let client = client_opt.unwrap();
   let mut files = Vec::new();
   log::info!("Searching global for: {}", query);
 
-  let result = client.invoke(&tl::functions::messages::SearchGlobal {
+  let result = match client.invoke(&tl::functions::messages::SearchGlobal {
     q: query,
     filter: tl::enums::MessagesFilter::InputMessagesFilterDocument,
     min_date: 0,
@@ -436,9 +518,11 @@ pub async fn cmd_search_global(
     broadcasts_only: false,
     groups_only: false,
     users_only: false,
-  }).await.map_err(map_error)?;
+  }).await {
+    Ok(res) => res,
+    Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, map_error(e)).into_response(),
+  };
 
-  // Extract messages from either Messages or Slice variant
   let messages = match result {
     tl::enums::messages::Messages::Messages(msgs) => msgs.messages,
     tl::enums::messages::Messages::Slice(msgs) => msgs.messages,
@@ -453,16 +537,16 @@ pub async fn cmd_search_global(
     }
   }
 
-  Ok(files)
+  (StatusCode::OK, Json(files)).into_response()
 }
 
-#[tauri::command]
 pub async fn cmd_scan_folders(
-  state: State<'_, TelegramState>,
-) -> Result<Vec<FolderMetadata>, String> {
+  State(app_state): State<AppState>,
+) -> impl IntoResponse {
+  let state = &app_state.telegram;
   let client_opt = { state.client.lock().await.clone() };
   if client_opt.is_none() {
-    return Ok(Vec::new());
+    return (StatusCode::OK, Json(Vec::<FolderMetadata>::new())).into_response();
   }
   let client = client_opt.unwrap();
   let mut folders = Vec::new();
@@ -470,8 +554,10 @@ pub async fn cmd_scan_folders(
 
   log::info!("Starting Folder Scan...");
 
-  while let Some(dialog) = dialogs.next().await.map_err(|e| e.to_string())? {
-    // Cache every peer we encounter during scan
+  while let Some(dialog) = match dialogs.next().await {
+    Ok(d) => d,
+    Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+  } {
     let peer_id = match &dialog.peer {
       Peer::Channel(c) => Some(c.raw.id),
       Peer::User(u) => Some(u.raw.id()),
@@ -489,7 +575,6 @@ pub async fn cmd_scan_folders(
         let access_hash = c.raw.access_hash.unwrap_or(0);
         log::debug!("[SCAN] Processing Channel: '{}' (ID: {})", name, id);
 
-        // Strategy 1: Title contains [TD]
         if name.to_lowercase().contains("[td]") {
           log::info!(" -> MATCH via Title: {}", name);
           let display_name = name
@@ -507,7 +592,6 @@ pub async fn cmd_scan_folders(
           continue;
         }
 
-        // Strategy 2: About field contains marker
         let input_chan = tl::enums::InputChannel::Channel(tl::types::InputChannel {
           channel_id: c.raw.id,
           access_hash,
@@ -537,5 +621,5 @@ pub async fn cmd_scan_folders(
   }
 
   log::info!("Scan complete. Found {} folders.", folders.len());
-  Ok(folders)
+  (StatusCode::OK, Json(folders)).into_response()
 }

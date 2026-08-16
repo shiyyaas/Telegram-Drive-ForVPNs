@@ -1,34 +1,48 @@
-use tauri::State;
-use tauri::Manager;
 use grammers_client::types::Media;
 use base64::{Engine as _, engine::general_purpose};
-use crate::TelegramState;
-use crate::bandwidth::BandwidthManager;
+use serde::Deserialize;
+use axum::{extract::{State, Query}, response::IntoResponse, Json, http::StatusCode};
+
+use crate::commands::AppState;
 use crate::commands::utils::resolve_peer;
 
-#[tauri::command]
+#[derive(Deserialize)]
+pub struct GetPreviewParams {
+    pub message_id: i32,
+    pub folder_id: Option<i64>,
+}
+
 pub async fn cmd_get_preview(
-    message_id: i32,
-    folder_id: Option<i64>,
-    app_handle: tauri::AppHandle,
-    state: State<'_, TelegramState>,
-    bw_state: State<'_, BandwidthManager>,
-) -> Result<String, String> {
+    State(app_state): State<AppState>,
+    Query(params): Query<GetPreviewParams>,
+) -> impl IntoResponse {
+    let state = &app_state.telegram;
+    let bw_state = &app_state.bandwidth;
+    let message_id = params.message_id;
+    let folder_id = params.folder_id;
+
+    let app_data_dir = std::env::var("DATA_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| std::path::PathBuf::from("data"));
     
-    let cache_dir = app_handle.path().app_data_dir().map_err(|e: tauri::Error| e.to_string())?.join("previews");
+    let cache_dir = app_data_dir.join("previews");
     if !cache_dir.exists() { let _ = std::fs::create_dir_all(&cache_dir); }
     log::info!("Using preview cache dir: {:?}", cache_dir);
     log::info!("Preview Request: msg_id={}", message_id);
 
     let client_opt = { state.client.lock().await.clone() };
-    if client_opt.is_none() { return Ok("".to_string()); }
+    if client_opt.is_none() { return (StatusCode::OK, Json("".to_string())).into_response(); }
     let client = client_opt.unwrap();
     
-    let peer = resolve_peer(&client, folder_id, &state).await?;
+    let peer = match resolve_peer(&client, folder_id, state).await {
+        Ok(p) => p,
+        Err(e) => return (StatusCode::BAD_REQUEST, e).into_response(),
+    };
 
-    // Direct fetch by ID instead of iterating all messages (critical for VPN latency)
-    let messages = client.get_messages_by_id(&peer, &[message_id])
-        .await.map_err(|e| e.to_string())?;
+    let messages = match client.get_messages_by_id(&peer, &[message_id]).await {
+        Ok(m) => m,
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    };
     let target_message = messages.into_iter().next().flatten();
     
     if let Some(msg) = target_message {
@@ -101,54 +115,58 @@ pub async fn cmd_get_preview(
                                  "svg" => "image/svg+xml",
                                  _ => "image/jpeg",
                              };
-                             return Ok(format!("data:{};base64,{}", mime, b64));
+                             return (StatusCode::OK, Json(format!("data:{};base64,{}", mime, b64))).into_response();
                          },
                          Err(e) => {
                              log::error!("Failed to read file for base64: {}", e);
-                             return Ok(save_path_str);
+                             return (StatusCode::OK, Json(save_path_str)).into_response();
                          }
                      }
                  }
                  log::info!("Returning path preview: {}", save_path_str);
-                 return Ok(save_path_str);
+                 return (StatusCode::OK, Json(save_path_str)).into_response();
              }
         }
     }
 
-    Err("File not found or failed to download".to_string())
+    (StatusCode::INTERNAL_SERVER_ERROR, "File not found or failed to download".to_string()).into_response()
 }
 
-#[tauri::command]
-pub async fn cmd_clean_cache(
-    app_handle: tauri::AppHandle,
-) -> Result<(), String> {
-    let cache_dir = app_handle.path().app_cache_dir().map_err(|e| e.to_string())?.join("previews");
+pub async fn cmd_clean_cache() -> impl IntoResponse {
+    let app_data_dir = std::env::var("DATA_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| std::path::PathBuf::from("data"));
+    let cache_dir = app_data_dir.join("previews");
     if cache_dir.exists() {
          let _ = std::fs::remove_dir_all(cache_dir);
     }
-    Ok(())
+    (StatusCode::OK, Json(())).into_response()
 }
 
-/// Get a small thumbnail for inline display in file cards.
-/// Returns base64 data URL for images, empty string for non-image files.
-/// Uses same cache as cmd_get_preview for consistency.
-#[tauri::command]
+#[derive(Deserialize)]
+pub struct GetThumbnailParams {
+    pub message_id: i32,
+    pub folder_id: Option<i64>,
+}
+
 pub async fn cmd_get_thumbnail(
-    message_id: i32,
-    folder_id: Option<i64>,
-    app_handle: tauri::AppHandle,
-    state: State<'_, TelegramState>,
-) -> Result<String, String> {
-    // Check if thumbnail already in cache
-    let cache_dir = app_handle.path().app_data_dir().map_err(|e: tauri::Error| e.to_string())?.join("thumbnails");
+    State(app_state): State<AppState>,
+    Query(params): Query<GetThumbnailParams>,
+) -> impl IntoResponse {
+    let state = &app_state.telegram;
+    let message_id = params.message_id;
+    let folder_id = params.folder_id;
+
+    let app_data_dir = std::env::var("DATA_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| std::path::PathBuf::from("data"));
+    let cache_dir = app_data_dir.join("thumbnails");
     if !cache_dir.exists() { let _ = std::fs::create_dir_all(&cache_dir); }
     
-    // Look for existing cached file
     if let Ok(entries) = std::fs::read_dir(&cache_dir) {
         for entry in entries.flatten() {
             let name = entry.file_name().to_string_lossy().to_string();
             if name.starts_with(&format!("{}.", message_id)) {
-                // Found cached thumbnail, return as base64
                 if let Ok(bytes) = std::fs::read(entry.path()) {
                     let ext = name.rsplit('.').next().unwrap_or("jpg");
                     let mime = match ext {
@@ -158,26 +176,28 @@ pub async fn cmd_get_thumbnail(
                         _ => "image/jpeg",
                     };
                     let b64 = general_purpose::STANDARD.encode(&bytes);
-                    return Ok(format!("data:{};base64,{}", mime, b64));
+                    return (StatusCode::OK, Json(format!("data:{};base64,{}", mime, b64))).into_response();
                 }
             }
         }
     }
     
-    // No cache, need to fetch from Telegram
     let client_opt = { state.client.lock().await.clone() };
-    if client_opt.is_none() { return Ok("".to_string()); }
+    if client_opt.is_none() { return (StatusCode::OK, Json("".to_string())).into_response(); }
     let client = client_opt.unwrap();
     
-    let peer = resolve_peer(&client, folder_id, &state).await?;
+    let peer = match resolve_peer(&client, folder_id, state).await {
+        Ok(p) => p,
+        Err(e) => return (StatusCode::BAD_REQUEST, e).into_response(),
+    };
 
-    // Direct fetch by ID instead of iterating all messages
-    let messages = client.get_messages_by_id(&peer, &[message_id])
-        .await.map_err(|e| e.to_string())?;
+    let messages = match client.get_messages_by_id(&peer, &[message_id]).await {
+        Ok(m) => m,
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    };
 
     if let Some(Some(m)) = messages.into_iter().next() {
         if let Some(media) = m.media() {
-            // Only get thumbnails for photos and documents with photo thumbnails
             let (is_image, ext) = match &media {
                 Media::Photo(_) => (true, "jpg".to_string()),
                 Media::Document(d) => {
@@ -191,19 +211,16 @@ pub async fn cmd_get_thumbnail(
                         };
                         (true, e.to_string())
                     } else {
-                        // Not an image, return empty - FileCard will show icon
-                        return Ok("".to_string());
+                        return (StatusCode::OK, Json("".to_string())).into_response();
                     }
                 },
-                _ => return Ok("".to_string()),
+                _ => return (StatusCode::OK, Json("".to_string())).into_response(),
             };
             
             if is_image {
-                // Get photo thumbnail (smallest size for speed)
                 let save_path = cache_dir.join(format!("{}.{}", message_id, ext));
                 let save_path_str = save_path.to_string_lossy().to_string();
                 
-                // Download the thumbnail/photo
                 if client.download_media(&media, &save_path_str).await.is_ok() {
                     if let Ok(bytes) = std::fs::read(&save_path) {
                         let mime = match ext.as_str() {
@@ -213,12 +230,12 @@ pub async fn cmd_get_thumbnail(
                             _ => "image/jpeg",
                         };
                         let b64 = general_purpose::STANDARD.encode(&bytes);
-                        return Ok(format!("data:{};base64,{}", mime, b64));
+                        return (StatusCode::OK, Json(format!("data:{};base64,{}", mime, b64))).into_response();
                     }
                 }
             }
         }
     }
     
-    Ok("".to_string())
+    (StatusCode::OK, Json("".to_string())).into_response()
 }
