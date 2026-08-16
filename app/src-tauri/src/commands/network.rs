@@ -1,15 +1,9 @@
 use std::net::TcpStream;
 use std::time::Duration;
+use axum::{response::IntoResponse, Json, http::StatusCode};
 
-/// Network check optimized for high-latency connections (e.g. China VPN)
-/// 
-/// Tries multiple Telegram DCs instead of just DC2, since VPN routing
-/// from China may have better paths to certain data centers.
-/// Uses an 8-second timeout to accommodate VPN latency.
-#[tauri::command]
-pub async fn cmd_is_network_available() -> Result<bool, String> {
-    tokio::task::spawn_blocking(|| {
-        // Try all 5 Telegram DCs — VPN routing from China varies
+pub async fn cmd_is_network_available() -> impl IntoResponse {
+    let result = tokio::task::spawn_blocking(|| {
         let dc_endpoints = [
             "149.154.175.53:443",   // DC1
             "149.154.167.50:443",   // DC2
@@ -24,13 +18,17 @@ pub async fn cmd_is_network_available() -> Result<bool, String> {
                     &addr,
                     Duration::from_secs(8),
                 ).is_ok() {
-                    return Ok(true);
+                    return true;
                 }
             }
         }
 
-        Ok(false)
+        false
     })
-    .await
-    .map_err(|e| e.to_string())?
+    .await;
+
+    match result {
+        Ok(available) => (StatusCode::OK, Json(available)).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    }
 }

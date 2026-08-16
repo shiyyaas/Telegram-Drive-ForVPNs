@@ -3,7 +3,6 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 use chrono::Local;
-use tauri::Manager;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct BandwidthStats {
@@ -29,9 +28,10 @@ pub struct BandwidthManager {
 }
 
 impl BandwidthManager {
-    pub fn new(app_handle: &tauri::AppHandle) -> Self {
-        // Resolve app data directory
-        let app_data_dir = app_handle.path().app_data_dir().unwrap_or_else(|_| PathBuf::from("data"));
+    pub fn new() -> Self {
+        let app_data_dir = std::env::var("DATA_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from("data"));
         
         if !app_data_dir.exists() {
              let _ = std::fs::create_dir_all(&app_data_dir);
@@ -61,8 +61,7 @@ impl BandwidthManager {
             stats.up_bytes = 0;
             stats.down_bytes = 0;
             // Save immediately
-            drop(stats); // Release lock before calling save if save uses lock (it doesn't, but self.save_locked needs the data)
-            // Actually save_locked takes &stats, so we keep lock.
+            drop(stats);
             if let Ok(json) = serde_json::to_string(&self.stats.lock().unwrap().clone()) { let _ = fs::write(&self.file_path, json); }
         }
     }

@@ -1,28 +1,26 @@
+use grammers_client::Client;
+use grammers_client::types::{LoginToken, PasswordToken, Peer};
+use tokio::sync::Mutex;
 use std::sync::Arc;
 use std::collections::HashMap;
-use tokio::sync::Mutex;
-use grammers_client::{Client};
-use grammers_client::types::{LoginToken, PasswordToken, Peer};
 
-/// Tracks the lifecycle of the Telegram connection
-/// 
-/// IMPORTANT: The `runner_shutdown` field is critical for preventing stack overflow.
-/// When reconnecting, we MUST shutdown the old runner before spawning a new one.
-/// Without this, runner tasks accumulate and exhaust the thread stack.
+use crate::bandwidth::BandwidthManager;
+
+#[derive(Clone)]
+pub struct AppState {
+    pub telegram: TelegramState,
+    pub bandwidth: Arc<BandwidthManager>,
+}
+
 #[derive(Clone)]
 pub struct TelegramState {
     pub client: Arc<Mutex<Option<Client>>>,
     pub login_token: Arc<Mutex<Option<LoginToken>>>,
     pub password_token: Arc<Mutex<Option<PasswordToken>>>,
     pub api_id: Arc<Mutex<Option<i32>>>,
-    /// Send to this channel to request runner shutdown
     pub runner_shutdown: Arc<std::sync::Mutex<Option<tokio::sync::oneshot::Sender<()>>>>,
-    /// Counter for debugging runner lifecycle
     pub runner_count: Arc<std::sync::atomic::AtomicU32>,
-    /// Cache resolved peers to avoid iterating all dialogs on every operation
     pub peer_cache: Arc<Mutex<HashMap<i64, Peer>>>,
-    /// Optional SOCKS5 proxy URL for routing connections through a VPN tunnel
-    /// Format: socks5://[user:pass@]host:port
     pub proxy_url: Arc<Mutex<Option<String>>>,
 }
 

@@ -1,17 +1,11 @@
 use grammers_client::Client;
 use grammers_client::types::Peer;
-use tauri::State;
-use crate::bandwidth::BandwidthManager;
+use axum::extract::State;
+use crate::commands::AppState;
 use crate::TelegramState;
 
-/// Resolve a folder/chat ID to a Telegram Peer.
-/// 
-/// Uses an in-memory cache to avoid iterating all dialogs on every operation.
-/// On a high-latency VPN connection, iterating 100 dialogs at ~300ms each
-/// would take 30s — the cache makes subsequent lookups instant.
 pub async fn resolve_peer(client: &Client, folder_id: Option<i64>, state: &TelegramState) -> Result<Peer, String> {
     if let Some(fid) = folder_id {
-        // Check cache first
         {
             let cache = state.peer_cache.lock().await;
             if let Some(cached_peer) = cache.get(&fid) {
@@ -22,7 +16,6 @@ pub async fn resolve_peer(client: &Client, folder_id: Option<i64>, state: &Teleg
 
         log::debug!("Peer cache MISS for folder {}. Iterating dialogs...", fid);
 
-        // Cache miss — iterate dialogs and populate cache
         let mut dialogs = client.iter_dialogs();
         while let Some(dialog) = dialogs.next().await.map_err(|e| e.to_string())? {
             let peer_id = match &dialog.peer {
@@ -32,7 +25,6 @@ pub async fn resolve_peer(client: &Client, folder_id: Option<i64>, state: &Teleg
             };
 
             if let Some(id) = peer_id {
-                // Cache every peer we see for future lookups
                 let mut cache = state.peer_cache.lock().await;
                 cache.insert(id, dialog.peer.clone());
 
@@ -50,19 +42,10 @@ pub async fn resolve_peer(client: &Client, folder_id: Option<i64>, state: &Teleg
     }
 }
 
-/// Return the streaming server port to the frontend so it never needs to hardcode it.
-/// This reads the single source of truth: `server::STREAMING_PORT`.
-#[tauri::command]
-pub fn cmd_get_stream_port() -> u16 {
-    crate::server::STREAMING_PORT
+pub async fn cmd_get_stream_port() -> axum::response::Json<u16> {
+    axum::response::Json(crate::server::STREAMING_PORT)
 }
 
-/// Ensure the peer cache has been populated at least once.
-///
-/// On cold start (before `cmd_scan_folders` runs), the cache is empty and
-/// every `resolve_peer` call triggers a full dialog iteration. Calling this
-/// once before a bulk operation (e.g. `cmd_move_files`) means both peers
-/// are found in O(1) instead of two separate O(N) dialog scans.
 pub async fn ensure_cache_warm(client: &Client, state: &TelegramState) {
     {
         let cache = state.peer_cache.lock().await;
@@ -86,20 +69,24 @@ pub async fn ensure_cache_warm(client: &Client, state: &TelegramState) {
     log::info!("Peer cache warmed ({} entries)", state.peer_cache.lock().await.len());
 }
 
-#[tauri::command]
-pub fn cmd_log(message: String) {
-    log::info!("[FRONTEND] {}", message);
+#[derive(serde::Deserialize)]
+pub struct LogPayload {
+    pub message: String,
 }
 
-#[tauri::command]
-pub fn cmd_get_bandwidth(bw_state: State<'_, BandwidthManager>) -> crate::bandwidth::BandwidthStats {
-    bw_state.get_stats()
+pub async fn cmd_log(axum::extract::Json(payload): axum::extract::Json<LogPayload>) {
+    log::info!("[FRONTEND] {}", payload.message);
+}
+
+pub async fn cmd_get_bandwidth(
+    State(app_state): State<AppState>,
+) -> axum::response::Json<crate::bandwidth::BandwidthStats> {
+    axum::response::Json(app_state.bandwidth.get_stats())
 }
 
 pub fn map_error(e: impl std::fmt::Display) -> String {
     let err_str = e.to_string();
     if err_str.contains("FLOOD_WAIT") {
-        // Expected format: ... (value: 1234)
         if let Some(start) = err_str.find("(value: ") {
              let rest = &err_str[start + 8..];
              if let Some(end) = rest.find(')') {
@@ -108,7 +95,6 @@ pub fn map_error(e: impl std::fmt::Display) -> String {
                  }
              }
         }
-        // Fallback if parsing fails but we know it's a flood wait
         return "FLOOD_WAIT_60".to_string();
     }
     err_str
