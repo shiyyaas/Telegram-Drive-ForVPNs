@@ -1,18 +1,16 @@
 import { useState, useEffect } from 'react';
-import { invoke } from '@tauri-apps/api/core';
-import { open } from '@tauri-apps/plugin-dialog';
+import { api } from '../services/api';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { QueueItem } from '../types';
 import { useFileDrop } from './useFileDrop';
-import type { Store } from '@tauri-apps/plugin-store';
+import type { Store } from '../utils/store';
 
 export function useFileUpload(activeFolderId: number | null, store: Store | null, onRefresh?: () => void) {
     const queryClient = useQueryClient();
     const [uploadQueue, setUploadQueue] = useState<QueueItem[]>([]);
     const [processing, setProcessing] = useState(false);
     const [initialized, setInitialized] = useState(false);
-
 
     useEffect(() => {
         if (!store || initialized) return;
@@ -28,13 +26,11 @@ export function useFileUpload(activeFolderId: number | null, store: Store | null
         });
     }, [store, initialized]);
 
-
     useEffect(() => {
         if (!store || !initialized) return;
         const pending = uploadQueue.filter(i => i.status === 'pending');
         store.set('uploadQueue', pending).then(() => store.save());
     }, [store, uploadQueue, initialized]);
-
 
     useEffect(() => {
         if (processing) return;
@@ -48,7 +44,7 @@ export function useFileUpload(activeFolderId: number | null, store: Store | null
         setProcessing(true);
         setUploadQueue(q => q.map(i => i.id === item.id ? { ...i, status: 'uploading' } : i));
         try {
-            await invoke('cmd_upload_file', { path: item.path, folderId: item.folderId });
+            await api.uploadFile(item.path, item.folderId);
             setUploadQueue(q => q.map(i => i.id === item.id ? { ...i, status: 'success' } : i));
             if (onRefresh) onRefresh(); else queryClient.invalidateQueries({ queryKey: ['files', item.folderId] });
         } catch (e) {
@@ -59,21 +55,27 @@ export function useFileUpload(activeFolderId: number | null, store: Store | null
         }
     };
 
-    // Opens system file dialog for upload
+    // Opens browser file picker for upload
     const handleManualUpload = async () => {
         try {
-            const selected = await open({ multiple: true, directory: false });
-            if (selected) {
-                const paths = Array.isArray(selected) ? selected : [selected];
-                const newItems: QueueItem[] = paths.map((path: string) => ({
-                    id: Math.random().toString(36).substr(2, 9),
-                    path,
-                    folderId: activeFolderId,
-                    status: 'pending'
-                }));
-                setUploadQueue(prev => [...prev, ...newItems]);
-                toast.info(`Queued ${paths.length} files for upload`);
-            }
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.multiple = true;
+            input.onchange = (e: Event) => {
+                const target = e.target as HTMLInputElement;
+                if (target.files && target.files.length > 0) {
+                    const files = Array.from(target.files);
+                    const newItems: QueueItem[] = files.map((file) => ({
+                        id: Math.random().toString(36).substring(2, 9),
+                        path: (file as any).path || file.name,
+                        folderId: activeFolderId,
+                        status: 'pending'
+                    }));
+                    setUploadQueue(prev => [...prev, ...newItems]);
+                    toast.info(`Queued ${files.length} file(s) for upload`);
+                }
+            };
+            input.click();
         } catch {
             toast.error("Failed to open file dialog");
         }

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { X, Loader2 } from 'lucide-react';
-import { invoke } from '@tauri-apps/api/core';
+import { api } from '../../services/api';
 import { TelegramFile } from '../../types';
 import { COMMON_EXTENSION_SETS } from '../../utils/fileExtensions';
 
@@ -17,7 +17,7 @@ export function MediaPlayer({ file, onClose, activeFolderId }: MediaPlayerProps)
     const [isBuffering, setIsBuffering] = useState(true);
 
     useEffect(() => {
-        invoke<number>('cmd_get_stream_port')
+        api.getStreamPort()
             .then(setStreamPort)
             .catch(() => { /* keep default */ });
     }, []);

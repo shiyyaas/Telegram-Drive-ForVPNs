@@ -1,8 +1,9 @@
-import { invoke } from '@tauri-apps/api/core';
+import { api } from '../services/api';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { useConfirm } from '../context/ConfirmContext';
 import { TelegramFile } from '../types';
+import { formatBytes } from '../utils';
 
 export function useFileOperations(
     activeFolderId: number | null,
@@ -17,7 +18,7 @@ export function useFileOperations(
     const handleDelete = async (id: number) => {
         if (!await confirm({ title: "Delete File", message: "Are you sure you want to delete this file?", confirmText: "Delete", variant: 'danger' })) return;
         try {
-            await invoke('cmd_delete_file', { messageId: id, folderId: activeFolderId });
+            await api.deleteFile(id, activeFolderId);
             if (onRefresh) onRefresh(); else queryClient.invalidateQueries({ queryKey: ['files', activeFolderId] });
             toast.success("File deleted");
         } catch (e) {
@@ -33,7 +34,7 @@ export function useFileOperations(
         let fail = 0;
         for (const id of selectedIds) {
             try {
-                await invoke('cmd_delete_file', { messageId: id, folderId: activeFolderId });
+                await api.deleteFile(id, activeFolderId);
                 success++;
             } catch {
                 fail++;
@@ -47,12 +48,8 @@ export function useFileOperations(
 
     const handleDownload = async (id: number, name: string) => {
         try {
-            const savePath = await import('@tauri-apps/plugin-dialog').then(d => d.save({
-                defaultPath: name,
-            }));
-            if (!savePath) return;
             toast.info(`Download started: ${name}`);
-            await invoke('cmd_download_file', { messageId: id, savePath, folderId: activeFolderId });
+            await api.downloadFile(id, name, activeFolderId);
             toast.success(`Download complete: ${name}`);
         } catch (e) {
             toast.error(`Download failed: ${e}`);
@@ -62,20 +59,15 @@ export function useFileOperations(
     const handleBulkDownload = async () => {
         if (selectedIds.length === 0) return;
         try {
-            const dirPath = await import('@tauri-apps/plugin-dialog').then(d => d.open({
-                directory: true, multiple: false, title: "Select Download Destination"
-            }));
-            if (!dirPath) return;
             let successCount = 0;
             const targetFiles = displayedFiles.filter((f) => selectedIds.includes(f.id));
             toast.info(`Starting batch download of ${targetFiles.length} files...`);
 
             for (const file of targetFiles) {
-                const filePath = `${dirPath}/${file.name}`;
                 try {
-                    await invoke('cmd_download_file', { messageId: file.id, savePath: filePath, folderId: activeFolderId });
+                    await api.downloadFile(file.id, file.name, activeFolderId);
                     successCount++;
-                } catch (e) { }
+                } catch { }
             }
             toast.success(`Downloaded ${successCount} files.`);
             setSelectedIds([]);
@@ -87,11 +79,7 @@ export function useFileOperations(
     const handleBulkMove = async (targetFolderId: number | null, onSuccess?: () => void) => {
         if (selectedIds.length === 0) return;
         try {
-            await invoke('cmd_move_files', {
-                messageIds: selectedIds,
-                sourceFolderId: activeFolderId,
-                targetFolderId: targetFolderId
-            });
+            await api.moveFiles(selectedIds, activeFolderId, targetFolderId);
             toast.success(`Moved ${selectedIds.length} files.`);
             if (onRefresh) onRefresh(); else queryClient.invalidateQueries({ queryKey: ['files', activeFolderId] });
             setSelectedIds([]);
@@ -107,18 +95,13 @@ export function useFileOperations(
             return;
         }
         try {
-            const dirPath = await import('@tauri-apps/plugin-dialog').then(d => d.open({
-                directory: true, multiple: false, title: "Download Folder To..."
-            }));
-            if (!dirPath) return;
             let successCount = 0;
             toast.info(`Downloading folder contents (${displayedFiles.length} files)...`);
             for (const file of displayedFiles) {
-                const filePath = `${dirPath}/${file.name}`;
                 try {
-                    await invoke('cmd_download_file', { messageId: file.id, savePath: filePath, folderId: activeFolderId });
+                    await api.downloadFile(file.id, file.name, activeFolderId);
                     successCount++;
-                } catch (e) { }
+                } catch { }
             }
             toast.success(`Folder Download Complete: ${successCount} files.`);
         } catch (e) {
@@ -133,9 +116,14 @@ export function useFileOperations(
         handleBulkDownload,
         handleBulkMove,
         handleDownloadFolder,
-        handleGlobalSearch: async (query: string) => {
+        handleGlobalSearch: async (query: string): Promise<TelegramFile[]> => {
             try {
-                return await invoke<TelegramFile[]>('cmd_search_global', { query });
+                const results = await api.searchGlobal(query);
+                return results.map(f => ({
+                    ...f,
+                    sizeStr: formatBytes(f.size),
+                    type: f.icon_type === 'folder' ? 'folder' : 'file',
+                }));
             } catch {
                 return [];
             }

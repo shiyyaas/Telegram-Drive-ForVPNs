@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { X, File } from 'lucide-react';
-import { invoke } from '@tauri-apps/api/core';
-import { convertFileSrc } from '@tauri-apps/api/core';
+import { api } from '../../services/api';
 import { TelegramFile } from '../../types';
 import { COMMON_EXTENSION_SETS } from '../../utils/fileExtensions';
 import PdfViewer from './PdfViewer';
@@ -30,16 +29,9 @@ export function PreviewModal({ file, onClose, activeFolderId }: PreviewModalProp
             setLoading(true);
             setError(null);
             try {
-                const path = await invoke<string>('cmd_get_preview', {
-                    messageId: file.id,
-                    folderId: activeFolderId
-                });
+                const path = await api.getPreview(file.id, activeFolderId);
                 if (path) {
-                    if (path.startsWith('data:')) {
-                        setSrc(path);
-                    } else {
-                        setSrc(convertFileSrc(path));
-                    }
+                    setSrc(path);
                 } else {
                     setError("Preview not available");
                 }

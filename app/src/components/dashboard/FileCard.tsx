@@ -1,7 +1,7 @@
 import { motion } from 'framer-motion';
 import { useState, useEffect } from 'react';
 import { Folder, Eye, Trash2 } from 'lucide-react';
-import { invoke } from '@tauri-apps/api/core';
+import { api } from '../../services/api';
 import { TelegramFile } from '../../types';
 import { FileTypeIcon } from '../FileTypeIcon';
 import { COMMON_EXTENSION_SETS } from '../../utils/fileExtensions';
@@ -41,18 +41,16 @@ export function FileCard({ file, onDelete, onDownload, onPreview, isSelected, on
         let cancelled = false;
         setThumbnailLoading(true);
 
-        invoke<string>('cmd_get_thumbnail', {
-            messageId: file.id,
-            folderId: activeFolderId
-        }).then((result) => {
-            if (!cancelled && result) {
-                setThumbnail(result);
-            }
-        }).catch(() => {
-            // Silently fail - will show icon instead
-        }).finally(() => {
-            if (!cancelled) setThumbnailLoading(false);
-        });
+        api.getThumbnail(file.id, activeFolderId ?? null)
+            .then((result) => {
+                if (!cancelled && result) {
+                    setThumbnail(result);
+                }
+            }).catch(() => {
+                // Silently fail - will show icon instead
+            }).finally(() => {
+                if (!cancelled) setThumbnailLoading(false);
+            });
 
         return () => { cancelled = true; };
     }, [file.id, file.name, activeFolderId, isFolder]);

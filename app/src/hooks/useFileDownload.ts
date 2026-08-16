@@ -1,9 +1,8 @@
 import { useState, useEffect } from 'react';
-import { invoke } from '@tauri-apps/api/core';
-import { save, open } from '@tauri-apps/plugin-dialog';
+import { api } from '../services/api';
 import { toast } from 'sonner';
 import { DownloadItem, TelegramFile } from '../types';
-import type { Store } from '@tauri-apps/plugin-store';
+import type { Store } from '../utils/store';
 
 export function useFileDownload(store: Store | null) {
     const [downloadQueue, setDownloadQueue] = useState<DownloadItem[]>([]);
@@ -47,19 +46,7 @@ export function useFileDownload(store: Store | null) {
         setDownloadQueue(q => q.map(i => i.id === item.id ? { ...i, status: 'downloading' } : i));
 
         try {
-            const savePath = await save({ defaultPath: item.filename });
-            if (!savePath) {
-                // User cancelled
-                setDownloadQueue(q => q.filter(i => i.id !== item.id));
-                setProcessing(false);
-                return;
-            }
-
-            await invoke('cmd_download_file', {
-                messageId: item.messageId,
-                savePath,
-                folderId: item.folderId
-            });
+            await api.downloadFile(item.messageId, item.filename, item.folderId);
 
             setDownloadQueue(q => q.map(i => i.id === item.id ? { ...i, status: 'success' } : i));
             toast.success(`Downloaded: ${item.filename}`);
@@ -73,7 +60,7 @@ export function useFileDownload(store: Store | null) {
 
     const queueDownload = (messageId: number, filename: string, folderId: number | null) => {
         const newItem: DownloadItem = {
-            id: Math.random().toString(36).substr(2, 9),
+            id: Math.random().toString(36).substring(2, 9),
             messageId,
             filename,
             folderId,
@@ -83,17 +70,9 @@ export function useFileDownload(store: Store | null) {
     };
 
     const queueBulkDownload = async (files: TelegramFile[], folderId: number | null) => {
-        const dirPath = await open({
-            directory: true,
-            multiple: false,
-            title: "Select Download Destination"
-        });
-        if (!dirPath) return;
-
-        // For bulk, we don't prompt for each file - we use the directory
         for (const file of files) {
             const newItem: DownloadItem = {
-                id: Math.random().toString(36).substr(2, 9),
+                id: Math.random().toString(36).substring(2, 9),
                 messageId: file.id,
                 filename: file.name,
                 folderId,

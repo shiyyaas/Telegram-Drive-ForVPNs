@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { invoke } from '@tauri-apps/api/core';
-import { Store } from '@tauri-apps/plugin-store';
+import { api } from '../services/api';
+import { Store, load } from '../utils/store';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { useConfirm } from '../context/ConfirmContext';
@@ -17,23 +17,20 @@ export function useTelegramConnection(onLogoutParent: () => void) {
     const [isSyncing, setIsSyncing] = useState(false);
     const [isConnected, setIsConnected] = useState(true);
 
-
     const networkIsOnline = useNetworkStatus();
-
 
     useEffect(() => {
         const initStore = async () => {
             try {
-                let _store = await Store.load('config.json');
+                let _store = await load('config.json');
                 const checkId = await _store.get<string>('api_id');
                 if (!checkId) {
-                    _store = await Store.load('settings.json');
+                    _store = await load('settings.json');
                 }
                 setStore(_store);
 
                 const savedFolders = await _store.get<TelegramFolder[]>('folders');
                 if (savedFolders) setFolders(savedFolders);
-
 
                 const savedActiveFolderId = await _store.get<number | null>('activeFolderId');
                 if (savedActiveFolderId !== undefined) setActiveFolderId(savedActiveFolderId);
@@ -44,10 +41,10 @@ export function useTelegramConnection(onLogoutParent: () => void) {
 
                     // Load and set proxy before connecting (critical for China VPN users)
                     try {
-                        const configStore = await Store.load('config.json');
+                        const configStore = await load('config.json');
                         const savedProxy = await configStore.get<string>('proxy_url');
                         if (savedProxy) {
-                            await invoke('cmd_set_proxy', { proxyUrl: savedProxy });
+                            await api.setProxy(savedProxy);
                         }
                     } catch { /* proxy config optional */ }
 
@@ -55,7 +52,7 @@ export function useTelegramConnection(onLogoutParent: () => void) {
                     let connected = false;
                     for (let attempt = 1; attempt <= 3; attempt++) {
                         try {
-                            await invoke('cmd_connect', { apiId });
+                            await api.connect(apiId);
                             connected = true;
                             break;
                         } catch {
@@ -91,11 +88,9 @@ export function useTelegramConnection(onLogoutParent: () => void) {
         initStore();
     }, [queryClient, onLogoutParent]);
 
-
     useEffect(() => {
         setIsConnected(networkIsOnline);
     }, [networkIsOnline]);
-
 
     const isNetworkError = (error: string): boolean => {
         const keywords = ['timeout', 'connection', 'network', 'socket', 'disconnected', 'EOF', 'ECONNREFUSED', 'overflow'];
@@ -105,7 +100,7 @@ export function useTelegramConnection(onLogoutParent: () => void) {
     const forceLogout = async () => {
         setIsConnected(false);
         try {
-            await invoke('cmd_clean_cache').catch(() => { });
+            await api.cleanCache().catch(() => { });
             if (store) {
                 await store.delete('api_id');
                 await store.delete('api_hash');
@@ -119,13 +114,12 @@ export function useTelegramConnection(onLogoutParent: () => void) {
         onLogoutParent();
     };
 
-
     const handleLogout = async () => {
         if (!await confirm({ title: "Sign Out", message: "Are you sure you want to sign out? This will disconnect your active session.", confirmText: "Sign Out", variant: 'danger' })) return;
 
         try {
-            await invoke('cmd_logout');
-            await invoke('cmd_clean_cache');
+            await api.logout();
+            await api.cleanCache();
             if (store) {
                 await store.delete('api_id');
                 await store.delete('api_hash');
@@ -143,7 +137,7 @@ export function useTelegramConnection(onLogoutParent: () => void) {
         if (!store) return;
         setIsSyncing(true);
         try {
-            const foundFolders = await invoke<TelegramFolder[]>('cmd_scan_folders');
+            const foundFolders = await api.scanFolders();
             const merged = [...folders];
             let added = 0;
             for (const f of foundFolders) {
@@ -170,7 +164,7 @@ export function useTelegramConnection(onLogoutParent: () => void) {
     const handleCreateFolder = async (name: string) => {
         if (!store) return;
         try {
-            const newFolder = await invoke<TelegramFolder>('cmd_create_folder', { name });
+            const newFolder = await api.createFolder(name);
             const updated = [...folders, newFolder];
             setFolders(updated);
             await store.set('folders', updated);
@@ -191,7 +185,7 @@ export function useTelegramConnection(onLogoutParent: () => void) {
         })) return;
 
         try {
-            await invoke('cmd_delete_folder', { folderId });
+            await api.deleteFolder(folderId);
             const updated = folders.filter(f => f.id !== folderId);
             setFolders(updated);
             if (store) {
@@ -222,7 +216,6 @@ export function useTelegramConnection(onLogoutParent: () => void) {
             }
         }
     };
-
 
     const handleSetActiveFolderId = async (id: number | null) => {
         setActiveFolderId(id);
