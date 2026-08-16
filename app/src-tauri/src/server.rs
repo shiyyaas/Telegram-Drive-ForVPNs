@@ -43,7 +43,7 @@ async fn stream_media(
 
     if let Some(client) = client_opt {
         log::debug!("Client connected, resolving peer...");
-        match resolve_peer(&client, folder_id, &**data).await {
+        match resolve_peer(&client, folder_id, &data).await {
             Ok(peer) => {
                 log::debug!("Peer resolved successfully, fetching message {}", message_id);
                 match client.get_messages_by_id(&peer, &[message_id]).await {
@@ -276,11 +276,7 @@ fn parse_range_header(req: &HttpRequest, total_size: u64) -> RangeResult {
             Ok(n) => n,
             Err(_) => return RangeResult::Invalid,
         };
-        if suffix_len > total_size {
-            0
-        } else {
-            total_size - suffix_len
-        }
+        total_size.saturating_sub(suffix_len)
     } else {
         match parts[0].parse::<u64>() {
             Ok(n) => n,
