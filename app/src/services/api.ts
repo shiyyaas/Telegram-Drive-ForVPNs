@@ -53,6 +53,11 @@ async function fetchApi<T>(endpoint: string, options: RequestInit = {}): Promise
 
 export const api = {
   // Auth & Connection
+  getAuthStatus: () =>
+    fetchApi<{ authenticated: boolean }>('/auth/status', {
+      method: 'GET',
+    }),
+
   connect: (apiId: number) =>
     fetchApi<boolean>('/connect', {
       method: 'POST',

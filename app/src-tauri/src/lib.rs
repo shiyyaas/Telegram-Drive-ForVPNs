@@ -29,6 +29,7 @@ pub fn create_router(telegram_state: TelegramState, bw_manager: Arc<BandwidthMan
         .route("/connect", post(commands::cmd_connect))
         .route("/check-connection", get(commands::cmd_check_connection))
         .route("/logout", post(commands::cmd_logout))
+        .route("/auth/status", get(commands::cmd_auth_status))
         .route("/auth/request-code", post(commands::cmd_auth_request_code))
         .route("/auth/sign-in", post(commands::cmd_auth_sign_in))
         .route("/auth/check-password", post(commands::cmd_auth_check_password))
