@@ -5,6 +5,12 @@ use serde::Deserialize;
 use axum::{extract::{State, Query}, response::IntoResponse, Json, http::StatusCode};
 
 use crate::commands::AppState;
+
+/// Helper to validate file paths and prevent path traversal attacks by rejecting '..' components.
+pub fn is_safe_path(path: &str) -> bool {
+  let p = std::path::Path::new(path);
+  !p.components().any(|c| matches!(c, std::path::Component::ParentDir))
+}
 use crate::models::{FolderMetadata, FileMetadata, FilePage};
 use crate::commands::utils::{resolve_peer, ensure_cache_warm, map_error};
 use crate::commands::retry::with_retry;
@@ -144,6 +150,10 @@ pub async fn cmd_upload_file(
   let state = &app_state.telegram;
   let bw_state = &app_state.bandwidth;
   let path = payload.path;
+
+  if !is_safe_path(&path) {
+    return (StatusCode::BAD_REQUEST, "Invalid file path: path traversal detected".to_string()).into_response();
+  }
   let folder_id = payload.folder_id;
   let size = match std::fs::metadata(&path) {
     Ok(m) => m.len(),
@@ -241,6 +251,10 @@ pub async fn cmd_download_file(
   let bw_state = &app_state.bandwidth;
   let message_id = payload.message_id;
   let save_path = payload.save_path;
+
+  if !is_safe_path(&save_path) {
+    return (StatusCode::BAD_REQUEST, "Invalid save path: path traversal detected".to_string()).into_response();
+  }
   let folder_id = payload.folder_id;
 
   let client_opt = {
@@ -625,4 +639,19 @@ pub async fn cmd_scan_folders(
 
   log::info!("Scan complete. Found {} folders.", folders.len());
   (StatusCode::OK, Json(folders)).into_response()
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn test_is_safe_path() {
+    assert!(is_safe_path("normal_file.txt"));
+    assert!(is_safe_path("/tmp/uploads/file.png"));
+    assert!(is_safe_path("./downloads/file.zip"));
+    assert!(!is_safe_path("../etc/passwd"));
+    assert!(!is_safe_path("/var/www/../../etc/shadow"));
+    assert!(!is_safe_path("foo/bar/../baz"));
+  }
 }
