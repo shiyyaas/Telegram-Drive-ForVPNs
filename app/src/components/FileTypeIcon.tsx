@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import {
     File, FileText, FileImage, FileVideo, FileAudio,
     FileArchive, FileCode, FileSpreadsheet, Presentation,
@@ -75,8 +76,9 @@ const sizeMap = {
     lg: 'w-12 h-12',
 };
 
-export function FileTypeIcon({ filename, className, size = 'md' }: FileTypeIconProps) {
+// Memoized to avoid re-calculating file extension icons during list virtualization & parent state updates
+export const FileTypeIcon = memo(function FileTypeIcon({ filename, className, size = 'md' }: FileTypeIconProps) {
     const { icon: Icon, color } = getFileTypeInfo(filename);
     const sizeClass = className ?? sizeMap[size];
     return <Icon className={`${sizeClass} ${color} pointer-events-none select-none`} />;
-}
+});
