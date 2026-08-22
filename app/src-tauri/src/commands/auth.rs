@@ -5,8 +5,113 @@ use grammers_mtsender::{SenderPool, ConnectionParams};
 use grammers_session::storages::SqliteSession;
 use tokio::sync::oneshot;
 use tokio::time::Duration;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use axum::{extract::State, response::IntoResponse, Json, http::StatusCode};
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct SessionConfig {
+    pub api_id: i32,
+    pub proxy_url: Option<String>,
+}
+
+fn get_app_data_dir() -> std::path::PathBuf {
+    std::env::var("DATA_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| std::path::PathBuf::from("data"))
+}
+
+fn get_session_config_path() -> std::path::PathBuf {
+    get_app_data_dir().join("session_config.json")
+}
+
+pub fn save_session_config(api_id: i32, proxy_url: Option<String>) {
+    let app_data_dir = get_app_data_dir();
+    if !app_data_dir.exists() {
+        let _ = std::fs::create_dir_all(&app_data_dir);
+    }
+    let config = SessionConfig { api_id, proxy_url };
+    if let Ok(json) = serde_json::to_string_pretty(&config) {
+        let _ = std::fs::write(get_session_config_path(), json);
+    }
+}
+
+pub fn load_session_config() -> Option<SessionConfig> {
+    let config_path = get_session_config_path();
+    if config_path.exists() {
+        if let Ok(content) = std::fs::read_to_string(config_path) {
+            if let Ok(config) = serde_json::from_str::<SessionConfig>(&content) {
+                return Some(config);
+            }
+        }
+    }
+    None
+}
+
+pub fn delete_session_config() {
+    let config_path = get_session_config_path();
+    let _ = std::fs::remove_file(config_path);
+}
+
+#[derive(Serialize)]
+pub struct AuthStatusResponse {
+    pub authenticated: bool,
+}
+
+pub async fn cmd_auth_status(
+    State(app_state): State<AppState>,
+) -> impl IntoResponse {
+    let state = &app_state.telegram;
+
+    let client_opt = {
+        let guard = state.client.lock().await;
+        guard.as_ref().cloned()
+    };
+
+    if let Some(client) = client_opt {
+        if let Ok(authorized) = client.is_authorized().await {
+            if authorized {
+                return (StatusCode::OK, Json(AuthStatusResponse { authenticated: true })).into_response();
+            }
+        }
+    }
+
+    match try_auto_login(state).await {
+        Ok(true) => (StatusCode::OK, Json(AuthStatusResponse { authenticated: true })).into_response(),
+        _ => (StatusCode::OK, Json(AuthStatusResponse { authenticated: false })).into_response(),
+    }
+}
+
+pub async fn try_auto_login(state: &TelegramState) -> Result<bool, String> {
+    if let Some(config) = load_session_config() {
+        log::info!("Saved session config found for API ID: {}. Attempting auto-login...", config.api_id);
+        *state.api_id.lock().await = Some(config.api_id);
+        *state.proxy_url.lock().await = config.proxy_url;
+
+        match ensure_client_initialized(state, config.api_id).await {
+            Ok(client) => {
+                match client.is_authorized().await {
+                    Ok(true) => {
+                        log::info!("Auto-login successful: session is authorized.");
+                        return Ok(true);
+                    }
+                    Ok(false) => {
+                        log::warn!("Saved session exists but is not authorized.");
+                        return Ok(false);
+                    }
+                    Err(e) => {
+                        log::warn!("Failed to check authorization on restored session: {}", e);
+                        return Ok(false);
+                    }
+                }
+            }
+            Err(e) => {
+                log::warn!("Failed to initialize client with saved session: {}", e);
+                return Ok(false);
+            }
+        }
+    }
+    Ok(false)
+}
 
 use crate::commands::AppState;
 use crate::TelegramState;
@@ -111,6 +216,8 @@ pub async fn cmd_connect(
 ) -> impl IntoResponse {
     let state = &app_state.telegram;
     *state.api_id.lock().await = Some(payload.api_id);
+    let proxy = state.proxy_url.lock().await.clone();
+    save_session_config(payload.api_id, proxy);
     match ensure_client_initialized(state, payload.api_id).await {
         Ok(_) => (StatusCode::OK, Json(true)).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e).into_response(),
@@ -186,6 +293,8 @@ pub async fn cmd_logout(
     *state.api_id.lock().await = None;
     state.peer_cache.lock().await.clear();
 
+    delete_session_config();
+
     let app_data_dir = std::env::var("DATA_DIR")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|_| std::path::PathBuf::from("data"));
@@ -215,6 +324,8 @@ pub async fn cmd_auth_request_code(
     }
 
     *state.api_id.lock().await = Some(payload.api_id);
+    let proxy = state.proxy_url.lock().await.clone();
+    save_session_config(payload.api_id, proxy);
 
     let client_handle = match ensure_client_initialized(state, payload.api_id).await {
         Ok(c) => c,
@@ -318,7 +429,10 @@ pub async fn cmd_set_proxy(
     } else {
         log::info!("Proxy cleared (direct connection)");
     }
-    *state.proxy_url.lock().await = cleaned;
+    *state.proxy_url.lock().await = cleaned.clone();
+    if let Some(api_id) = *state.api_id.lock().await {
+        save_session_config(api_id, cleaned);
+    }
     (StatusCode::OK, Json(true)).into_response()
 }
 

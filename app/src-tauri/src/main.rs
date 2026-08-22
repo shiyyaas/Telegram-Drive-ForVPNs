@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use app_lib::{create_router, init_telegram_state, bandwidth::BandwidthManager, server};
+use app_lib::{create_router, init_telegram_state, bandwidth::BandwidthManager, server, commands::try_auto_login};
 
 #[tokio::main]
 async fn main() {
@@ -8,6 +8,14 @@ async fn main() {
 
     let telegram_state = init_telegram_state();
     let bw_manager = Arc::new(BandwidthManager::new());
+
+    // Auto-load session on startup if saved config and session exist
+    let state_for_auto_login = telegram_state.clone();
+    tokio::spawn(async move {
+        if let Err(e) = try_auto_login(&state_for_auto_login).await {
+            log::warn!("Startup auto-login attempt finished with error: {}", e);
+        }
+    });
 
     // Start Actix Streaming Server in background thread
     let state_for_actix = Arc::new(telegram_state.clone());
