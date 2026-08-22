@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, memo } from 'react';
 import { Plus } from 'lucide-react';
 
 interface SidebarItemProps {
@@ -14,10 +14,9 @@ interface SidebarItemProps {
 /**
  * SidebarItem - Pure DOM event-based drop handling
  * 
- * With Tauri's dragDropEnabled: false, DOM events work reliably.
- * This component handles internal file moves via standard React drag events.
+ * Wrapped in React.memo to prevent unnecessary sidebar item re-renders during periodic bandwidth polling and selection updates.
  */
-export function SidebarItem({ icon: Icon, label, active = false, onClick, onDrop, onDelete }: SidebarItemProps) {
+export const SidebarItem = memo(function SidebarItem({ icon: Icon, label, active = false, onClick, onDrop, onDelete }: SidebarItemProps) {
     const [isOver, setIsOver] = useState(false);
 
     return (
@@ -72,4 +71,4 @@ export function SidebarItem({ icon: Icon, label, active = false, onClick, onDrop
             )}
         </button>
     )
-}
+});

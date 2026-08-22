@@ -78,6 +78,8 @@ export function FileExplorer({
         setContextMenu({ x: e.clientX, y: e.clientY, file });
     }, []);
 
+    const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
+
     const sortedFiles = useMemo(() => {
         return [...files].sort((a, b) => {
             let comparison = 0;
@@ -248,13 +250,13 @@ export function FileExplorer({
                                             <FileCard
                                                 key={file.id}
                                                 file={file}
-                                                isSelected={selectedIds.includes(file.id)}
-                                                onClick={(e) => onFileClick(e, file.id)}
-                                                onContextMenu={(e) => handleContextMenu(e, file)}
-                                                onDelete={() => onDelete(file.id)}
-                                                onDownload={() => onDownload(file.id, file.name)}
-                                                onPreview={() => onPreview(file)}
-                                                onToggleSelection={onToggleSelection ? () => onToggleSelection(file.id) : undefined}
+                                                isSelected={selectedSet.has(file.id)}
+                                                onClick={onFileClick}
+                                                onContextMenu={handleContextMenu}
+                                                onDelete={onDelete}
+                                                onDownload={onDownload}
+                                                onPreview={onPreview}
+                                                onToggleSelection={onToggleSelection}
                                                 onDrop={onDrop}
                                                 onDragStart={onDragStart}
                                                 onDragEnd={onDragEnd}
@@ -317,7 +319,7 @@ export function FileExplorer({
                                 >
                                     <FileListItem
                                         file={file}
-                                        selectedIds={selectedIds}
+                                        isSelected={selectedSet.has(file.id)}
                                         onFileClick={onFileClick}
                                         handleContextMenu={handleContextMenu}
                                         onDragStart={onDragStart}

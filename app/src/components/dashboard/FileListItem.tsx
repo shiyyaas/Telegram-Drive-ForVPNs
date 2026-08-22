@@ -1,11 +1,11 @@
-import { useState } from 'react';
+import { useState, memo } from 'react';
 import { Folder, Eye, HardDrive, Plus } from 'lucide-react';
 import { TelegramFile } from '../../types';
 import { FileTypeIcon } from '../FileTypeIcon';
 
 interface FileListItemProps {
     file: TelegramFile;
-    selectedIds: number[];
+    isSelected: boolean;
     onFileClick: (e: React.MouseEvent, id: number) => void;
     handleContextMenu: (e: React.MouseEvent, file: TelegramFile) => void;
     onDragStart?: (fileId: number) => void;
@@ -16,8 +16,9 @@ interface FileListItemProps {
     onDelete: (id: number) => void;
 }
 
-export function FileListItem({
-    file, selectedIds, onFileClick, handleContextMenu,
+// Memoized to prevent re-rendering every list item when selection array changes or parent updates
+export const FileListItem = memo(function FileListItem({
+    file, isSelected, onFileClick, handleContextMenu,
     onDragStart, onDragEnd, onDrop,
     onPreview, onDownload, onDelete
 }: FileListItemProps) {
@@ -60,7 +61,7 @@ export function FileListItem({
                 }
             }}
             className={`group grid grid-cols-[2rem_2fr_6rem_8rem] gap-4 items-center px-4 py-3 rounded-lg cursor-pointer border border-transparent transition-all hover:bg-telegram-hover 
-                ${selectedIds.includes(file.id) ? 'bg-telegram-primary/10 border-telegram-primary/20' : ''}
+                ${isSelected ? 'bg-telegram-primary/10 border-telegram-primary/20' : ''}
                 ${isDragOver ? 'ring-2 ring-telegram-primary bg-telegram-primary/20' : ''}
             `}
         >
@@ -80,4 +81,4 @@ export function FileListItem({
             <div className="text-right text-xs text-telegram-subtext font-mono opacity-50 truncate">{file.created_at || '-'}</div>
         </div>
     );
-}
+});
