@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { AnimatePresence } from 'framer-motion';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../services/api';
@@ -69,9 +69,14 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
     );
     const error = filesError ?? null;
 
-    const displayedFiles = searchTerm.length > 2
-        ? searchResults
-        : allFiles.filter((f: TelegramFile) => f.name.toLowerCase().includes(searchTerm.toLowerCase()));
+    // Performance optimization: Memoize displayedFiles to avoid filtering/allocating a new array on every render
+    // (such as periodic bandwidth polling every 5s, queue updates, or window interaction)
+    const displayedFiles = useMemo<TelegramFile[]>(() => {
+        if (searchTerm.length > 2) return searchResults;
+        const trimmed = searchTerm.trim().toLowerCase();
+        if (!trimmed) return allFiles;
+        return allFiles.filter((f: TelegramFile) => f.name.toLowerCase().includes(trimmed));
+    }, [searchTerm, searchResults, allFiles]);
 
     const { data: bandwidth } = useQuery({
         queryKey: ['bandwidth'],
@@ -95,7 +100,7 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
     }, [setUploadQueue]);
 
     const handleSelectAll = useCallback(() => {
-        setSelectedIds(displayedFiles.map(f => f.id));
+        setSelectedIds(displayedFiles.map((f: TelegramFile) => f.id));
     }, [displayedFiles]);
 
     const handleKeyboardDelete = useCallback(() => {
@@ -120,7 +125,7 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
 
     const handleEnter = useCallback(() => {
         if (selectedIds.length === 1) {
-            const selected = displayedFiles.find(f => f.id === selectedIds[0]);
+            const selected = displayedFiles.find((f: TelegramFile) => f.id === selectedIds[0]);
             if (selected) {
                 if (selected.type === 'folder') {
                     setActiveFolderId(selected.id);
@@ -137,7 +142,7 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
             setSelectedIds([displayedFiles[0].id]);
             return;
         }
-        const currentIdx = displayedFiles.findIndex(f => f.id === selectedIds[selectedIds.length - 1]);
+        const currentIdx = displayedFiles.findIndex((f: TelegramFile) => f.id === selectedIds[selectedIds.length - 1]);
         const nextIdx = Math.min(currentIdx + 1, displayedFiles.length - 1);
         setSelectedIds([displayedFiles[nextIdx].id]);
     }, [selectedIds, displayedFiles]);
@@ -148,7 +153,7 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
             setSelectedIds([displayedFiles[0].id]);
             return;
         }
-        const currentIdx = displayedFiles.findIndex(f => f.id === selectedIds[0]);
+        const currentIdx = displayedFiles.findIndex((f: TelegramFile) => f.id === selectedIds[0]);
         const prevIdx = Math.max(currentIdx - 1, 0);
         setSelectedIds([displayedFiles[prevIdx].id]);
     }, [selectedIds, displayedFiles]);
@@ -187,20 +192,25 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
         return () => clearTimeout(timer);
     }, [searchTerm]);
 
-    const handleFileClick = (e: React.MouseEvent, id: number) => {
+    // Performance optimization: Stable callbacks to prevent busting React.memo on FileCard / FileListItem
+    const handleFileClick = useCallback((e: React.MouseEvent, id: number) => {
         e.stopPropagation();
         if (e.metaKey || e.ctrlKey) {
             setSelectedIds(ids => ids.includes(id) ? ids.filter(i => i !== id) : [...ids, id]);
         } else {
             setSelectedIds([id]);
         }
-    }
+    }, []);
 
     const handleToggleSelection = useCallback((id: number) => {
         setSelectedIds(ids => ids.includes(id) ? ids.filter(i => i !== id) : [...ids, id]);
     }, []);
 
-    const handlePreview = (file: TelegramFile) => {
+    const handleClearSelection = useCallback(() => {
+        setSelectedIds([]);
+    }, []);
+
+    const handlePreview = useCallback((file: TelegramFile) => {
         const ext = file.name.toLowerCase().split('.').pop() || '';
         const isMedia = COMMON_EXTENSION_SETS.VIDEOS.has(ext) || COMMON_EXTENSION_SETS.AUDIO.has(ext);
 
@@ -209,9 +219,17 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
         } else {
             setPreviewFile(file);
         }
-    };
+    }, []);
 
-    const handleDropOnFolder = async (e: React.DragEvent, targetFolderId: number | null) => {
+    const handleDragStart = useCallback((fileId: number) => {
+        setInternalDragFileId(fileId);
+    }, []);
+
+    const handleDragEnd = useCallback(() => {
+        setTimeout(() => setInternalDragFileId(null), 50);
+    }, []);
+
+    const handleDropOnFolder = useCallback(async (e: React.DragEvent, targetFolderId: number | null) => {
         e.preventDefault();
         e.stopPropagation();
 
@@ -238,7 +256,7 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
                 toast.error(`Failed to move file(s).`);
             }
         }
-    }
+    }, [activeFolderId, selectedIds, refetch]);
 
     const currentFolderName = activeFolderId === null
         ? "Saved Messages"
@@ -336,11 +354,11 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
                     onDownload={handleDownload}
                     onPreview={handlePreview}
                     onManualUpload={handleManualUpload}
-                    onSelectionClear={() => setSelectedIds([])}
+                    onSelectionClear={handleClearSelection}
                     onToggleSelection={handleToggleSelection}
                     onDrop={handleDropOnFolder}
-                    onDragStart={(fileId) => setInternalDragFileId(fileId)}
-                    onDragEnd={() => setTimeout(() => setInternalDragFileId(null), 50)}
+                    onDragStart={handleDragStart}
+                    onDragEnd={handleDragEnd}
                 />
                 {isLoadingMore && (
                     <div className="px-6 py-2 text-xs text-telegram-subtext flex items-center gap-2">

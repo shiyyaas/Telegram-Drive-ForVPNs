@@ -1,3 +1,4 @@
+import { useCallback } from 'react';
 import { api } from '../services/api';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -15,7 +16,7 @@ export function useFileOperations(
     const queryClient = useQueryClient();
     const { confirm } = useConfirm();
 
-    const handleDelete = async (id: number) => {
+    const handleDelete = useCallback(async (id: number) => {
         if (!await confirm({ title: "Delete File", message: "Are you sure you want to delete this file?", confirmText: "Delete", variant: 'danger' })) return;
         try {
             await api.deleteFile(id, activeFolderId);
@@ -24,9 +25,9 @@ export function useFileOperations(
         } catch (e) {
             toast.error(`Delete failed: ${e}`);
         }
-    }
+    }, [activeFolderId, confirm, onRefresh, queryClient]);
 
-    const handleBulkDelete = async () => {
+    const handleBulkDelete = useCallback(async () => {
         if (selectedIds.length === 0) return;
         if (!await confirm({ title: "Delete Files", message: `Are you sure you want to delete ${selectedIds.length} files?`, confirmText: "Delete All", variant: 'danger' })) return;
 
@@ -44,9 +45,9 @@ export function useFileOperations(
         if (onRefresh) onRefresh(); else queryClient.invalidateQueries({ queryKey: ['files', activeFolderId] });
         if (success > 0) toast.success(`Deleted ${success} files.`);
         if (fail > 0) toast.error(`Failed to delete ${fail} files.`);
-    }
+    }, [selectedIds, confirm, activeFolderId, setSelectedIds, onRefresh, queryClient]);
 
-    const handleDownload = async (id: number, name: string) => {
+    const handleDownload = useCallback(async (id: number, name: string) => {
         try {
             toast.info(`Download started: ${name}`);
             await api.downloadFile(id, name, activeFolderId);
@@ -54,9 +55,9 @@ export function useFileOperations(
         } catch (e) {
             toast.error(`Download failed: ${e}`);
         }
-    }
+    }, [activeFolderId]);
 
-    const handleBulkDownload = async () => {
+    const handleBulkDownload = useCallback(async () => {
         if (selectedIds.length === 0) return;
         try {
             let successCount = 0;
@@ -74,9 +75,9 @@ export function useFileOperations(
         } catch (e) {
             toast.error(`Bulk download failed: ${e}`);
         }
-    }
+    }, [selectedIds, displayedFiles, activeFolderId, setSelectedIds]);
 
-    const handleBulkMove = async (targetFolderId: number | null, onSuccess?: () => void) => {
+    const handleBulkMove = useCallback(async (targetFolderId: number | null, onSuccess?: () => void) => {
         if (selectedIds.length === 0) return;
         try {
             await api.moveFiles(selectedIds, activeFolderId, targetFolderId);
@@ -87,9 +88,9 @@ export function useFileOperations(
         } catch {
             toast.error('Failed to move files');
         }
-    };
+    }, [selectedIds, activeFolderId, onRefresh, queryClient, setSelectedIds]);
 
-    const handleDownloadFolder = async () => {
+    const handleDownloadFolder = useCallback(async () => {
         if (displayedFiles.length === 0) {
             toast.info("Folder is empty.");
             return;
@@ -107,7 +108,20 @@ export function useFileOperations(
         } catch (e) {
             toast.error("Error: " + e);
         }
-    }
+    }, [displayedFiles, activeFolderId]);
+
+    const handleGlobalSearch = useCallback(async (query: string): Promise<TelegramFile[]> => {
+        try {
+            const results = await api.searchGlobal(query);
+            return results.map(f => ({
+                ...f,
+                sizeStr: formatBytes(f.size),
+                type: f.icon_type === 'folder' ? 'folder' : 'file',
+            }));
+        } catch {
+            return [];
+        }
+    }, []);
 
     return {
         handleDelete,
@@ -116,17 +130,6 @@ export function useFileOperations(
         handleBulkDownload,
         handleBulkMove,
         handleDownloadFolder,
-        handleGlobalSearch: async (query: string): Promise<TelegramFile[]> => {
-            try {
-                const results = await api.searchGlobal(query);
-                return results.map(f => ({
-                    ...f,
-                    sizeStr: formatBytes(f.size),
-                    type: f.icon_type === 'folder' ? 'folder' : 'file',
-                }));
-            } catch {
-                return [];
-            }
-        }
+        handleGlobalSearch,
     };
 }
