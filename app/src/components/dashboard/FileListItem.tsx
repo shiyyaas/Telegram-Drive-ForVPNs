@@ -71,10 +71,34 @@ export const FileListItem = memo(function FileListItem({
             <div className="truncate text-sm text-telegram-text font-medium relative pr-8">
                 {file.name}
                 {/* List Actions */}
-                <div className="absolute right-0 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 flex items-center bg-telegram-surface border border-telegram-border shadow-lg rounded px-1">
-                    <button onClick={(e) => { e.stopPropagation(); onPreview(file) }} className="p-1 hover:text-telegram-text text-telegram-subtext" title="Preview"><Eye className="w-4 h-4" /></button>
-                    <button onClick={(e) => { e.stopPropagation(); onDownload(file.id, file.name) }} className="p-1 hover:text-telegram-text text-telegram-subtext" title="Download"><HardDrive className="w-4 h-4" /></button>
-                    <button onClick={(e) => { e.stopPropagation(); onDelete(file.id) }} className="p-1 hover:text-red-400 text-telegram-subtext" title="Delete"><Plus className="w-4 h-4 rotate-45" /></button>
+                <div className="absolute right-0 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 focus-within:opacity-100 flex items-center bg-telegram-surface border border-telegram-border shadow-lg rounded px-1">
+                    <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); onPreview(file) }}
+                        className="p-1 hover:text-telegram-text text-telegram-subtext rounded focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-telegram-primary"
+                        title="Preview"
+                        aria-label={`Preview ${file.name}`}
+                    >
+                        <Eye className="w-4 h-4" />
+                    </button>
+                    <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); onDownload(file.id, file.name) }}
+                        className="p-1 hover:text-telegram-text text-telegram-subtext rounded focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-telegram-primary"
+                        title="Download"
+                        aria-label={`Download ${file.name}`}
+                    >
+                        <HardDrive className="w-4 h-4" />
+                    </button>
+                    <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); onDelete(file.id) }}
+                        className="p-1 hover:text-red-400 text-telegram-subtext rounded focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-red-400"
+                        title="Delete"
+                        aria-label={`Delete ${file.name}`}
+                    >
+                        <Plus className="w-4 h-4 rotate-45" />
+                    </button>
                 </div>
             </div>
             <div className="text-right text-xs text-telegram-subtext truncate">{file.sizeStr}</div>

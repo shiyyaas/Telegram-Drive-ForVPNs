@@ -1,6 +1,6 @@
 import { motion } from 'framer-motion';
 import { useState, useEffect, memo } from 'react';
-import { Folder, Eye, Trash2 } from 'lucide-react';
+import { Folder, Eye, Download, Trash2 } from 'lucide-react';
 import { api } from '../../services/api';
 import { TelegramFile } from '../../types';
 import { FileTypeIcon } from '../FileTypeIcon';
@@ -128,15 +128,19 @@ export const FileCard = memo(function FileCard({
                 )}
 
                 {/* Selection Checkmark */}
-                <div
-                    className={`absolute top-2 left-2 w-5 h-5 rounded-full border flex items-center justify-center transition-all z-10 ${isSelected ? 'bg-telegram-primary border-telegram-primary' : 'border-white/50 bg-black/30 opacity-0 group-hover:opacity-100'}`}
+                <button
+                    type="button"
+                    role="checkbox"
+                    aria-checked={isSelected}
+                    aria-label={`Select ${file.name}`}
+                    className={`absolute top-2 left-2 w-5 h-5 rounded-full border flex items-center justify-center transition-all z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-telegram-primary ${isSelected ? 'bg-telegram-primary border-telegram-primary opacity-100' : 'border-white/50 bg-black/30 opacity-0 group-hover:opacity-100 focus-visible:opacity-100'}`}
                     onClick={(e) => {
                         e.stopPropagation();
                         if (onToggleSelection) onToggleSelection(file.id);
                     }}
                 >
                     {isSelected && <div className="w-1.5 h-1.5 bg-black rounded-full" />}
-                </div>
+                </button>
 
                 {/* File info overlay at bottom */}
                 <div className={`absolute bottom-0 left-0 right-0 p-3 ${thumbnail ? 'text-white' : 'text-telegram-text'}`}>
@@ -144,15 +148,33 @@ export const FileCard = memo(function FileCard({
                     <p className={`text-xs mt-0.5 ${thumbnail ? 'text-white/70' : 'text-telegram-subtext'}`}>{file.sizeStr}</p>
                 </div>
 
-                {/* Quick actions on hover */}
-                <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1 z-10">
-                    <button onClick={(e) => { e.stopPropagation(); if (onPreview) onPreview(file) }} className="file-action-btn p-1 bg-black/50 rounded-full hover:bg-telegram-primary hover:text-white text-white/70" title="Preview">
+                {/* Quick actions on hover / focus */}
+                <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity flex gap-1 z-10">
+                    <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); if (onPreview) onPreview(file) }}
+                        className="file-action-btn p-1 bg-black/50 rounded-full hover:bg-telegram-primary hover:text-white text-white/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-telegram-primary"
+                        title="Preview"
+                        aria-label={`Preview ${file.name}`}
+                    >
                         <Eye className="w-3 h-3" />
                     </button>
-                    <button onClick={(e) => { e.stopPropagation(); onDownload(file.id, file.name) }} className="file-action-btn p-1 bg-black/50 rounded-full hover:bg-green-500 hover:text-white text-white/70" title="Download">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                    <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); onDownload(file.id, file.name) }}
+                        className="file-action-btn p-1 bg-black/50 rounded-full hover:bg-green-500 hover:text-white text-white/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-400"
+                        title="Download"
+                        aria-label={`Download ${file.name}`}
+                    >
+                        <Download className="w-3 h-3" />
                     </button>
-                    <button onClick={(e) => { e.stopPropagation(); onDelete(file.id) }} className="file-action-btn p-1 bg-black/50 rounded-full hover:bg-red-500 hover:text-white text-white/70" title="Delete">
+                    <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); onDelete(file.id) }}
+                        className="file-action-btn p-1 bg-black/50 rounded-full hover:bg-red-500 hover:text-white text-white/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400"
+                        title="Delete"
+                        aria-label={`Delete ${file.name}`}
+                    >
                         <Trash2 className="w-3 h-3" />
                     </button>
                 </div>

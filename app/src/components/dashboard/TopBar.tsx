@@ -1,4 +1,4 @@
-import { HardDrive, LayoutGrid, Sun, Moon } from 'lucide-react';
+import { HardDrive, LayoutGrid, Sun, Moon, Search, X } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 
 interface TopBarProps {
@@ -30,15 +30,26 @@ export function TopBar({
                 </div>
             </div>
 
-            <div className="flex-1 max-w-md mx-4">
+            <div className="flex-1 max-w-md mx-4 relative flex items-center">
+                <Search className="w-4 h-4 text-telegram-subtext absolute left-3 pointer-events-none" />
                 <input
                     type="text"
                     placeholder="Search files..."
                     aria-label="Search files"
-                    className="w-full bg-telegram-hover border border-telegram-border rounded-lg px-3 py-1.5 text-sm text-telegram-text placeholder:text-telegram-subtext focus:outline-none focus:ring-2 focus:ring-telegram-primary/50 focus:border-telegram-primary/50 transition-colors"
+                    className="w-full bg-telegram-hover border border-telegram-border rounded-lg pl-9 pr-8 py-1.5 text-sm text-telegram-text placeholder:text-telegram-subtext focus:outline-none focus:ring-2 focus:ring-telegram-primary/50 focus:border-telegram-primary/50 transition-colors"
                     value={searchTerm}
                     onChange={(e) => onSearchChange(e.target.value)}
                 />
+                {searchTerm && (
+                    <button
+                        type="button"
+                        onClick={() => onSearchChange('')}
+                        aria-label="Clear search"
+                        className="absolute right-2.5 p-0.5 rounded text-telegram-subtext hover:text-telegram-text hover:bg-telegram-surface transition-colors focus-visible:ring-2 focus-visible:ring-telegram-primary focus-visible:outline-none"
+                    >
+                        <X className="w-3.5 h-3.5" />
+                    </button>
+                )}
             </div>
 
             <div className="flex items-center gap-2">
