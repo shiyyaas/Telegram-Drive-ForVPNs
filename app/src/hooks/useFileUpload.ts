@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { api } from '../services/api';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -11,6 +11,10 @@ export function useFileUpload(activeFolderId: number | null, store: Store | null
     const [uploadQueue, setUploadQueue] = useState<QueueItem[]>([]);
     const [processing, setProcessing] = useState(false);
     const [initialized, setInitialized] = useState(false);
+
+    // Keep activeFolderId in ref for the upload picker callback to remain stable
+    const activeFolderIdRef = useRef(activeFolderId);
+    activeFolderIdRef.current = activeFolderId;
 
     useEffect(() => {
         if (!store || initialized) return;
@@ -32,15 +36,7 @@ export function useFileUpload(activeFolderId: number | null, store: Store | null
         store.set('uploadQueue', pending).then(() => store.save());
     }, [store, uploadQueue, initialized]);
 
-    useEffect(() => {
-        if (processing) return;
-        const nextItem = uploadQueue.find(i => i.status === 'pending');
-        if (nextItem) {
-            processItem(nextItem);
-        }
-    }, [uploadQueue, processing]);
-
-    const processItem = async (item: QueueItem) => {
+    const processItem = useCallback(async (item: QueueItem) => {
         setProcessing(true);
         setUploadQueue(q => q.map(i => i.id === item.id ? { ...i, status: 'uploading' } : i));
         try {
@@ -53,10 +49,18 @@ export function useFileUpload(activeFolderId: number | null, store: Store | null
         } finally {
             setProcessing(false);
         }
-    };
+    }, [onRefresh, queryClient]);
 
-    // Opens browser file picker for upload
-    const handleManualUpload = async () => {
+    useEffect(() => {
+        if (processing) return;
+        const nextItem = uploadQueue.find(i => i.status === 'pending');
+        if (nextItem) {
+            processItem(nextItem);
+        }
+    }, [uploadQueue, processing, processItem]);
+
+    // Opens browser file picker for upload (stable callback reference)
+    const handleManualUpload = useCallback(async () => {
         try {
             const input = document.createElement('input');
             input.type = 'file';
@@ -68,7 +72,7 @@ export function useFileUpload(activeFolderId: number | null, store: Store | null
                     const newItems: QueueItem[] = files.map((file) => ({
                         id: Math.random().toString(36).substring(2, 9),
                         path: (file as any).path || file.name,
-                        folderId: activeFolderId,
+                        folderId: activeFolderIdRef.current,
                         status: 'pending'
                     }));
                     setUploadQueue(prev => [...prev, ...newItems]);
@@ -79,7 +83,7 @@ export function useFileUpload(activeFolderId: number | null, store: Store | null
         } catch {
             toast.error("Failed to open file dialog");
         }
-    };
+    }, []);
 
     const { isDragging } = useFileDrop();
 
