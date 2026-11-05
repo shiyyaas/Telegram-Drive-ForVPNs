@@ -1,5 +1,13 @@
 # Changelog
 
+## [Unreleased]
+
+### Features
+
+- **Media Categorization Filter** - Added client-side category toggle controls (All, Videos, Photos) above the file grid/list with efficient React memory memoization and empty state fallback.
+
+---
+
 ## [1.1.7] - 2026-05-01
 
 ### Bug Fixes

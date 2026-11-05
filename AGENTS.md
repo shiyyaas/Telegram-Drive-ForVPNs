@@ -99,3 +99,9 @@ The backend is specifically engineered for unreliable or high-latency VPN tunnel
 2. **Central Frontend API Service**: All API calls from React should originate or be routed through `app/src/services/api.ts`.
 3. **Central Rust Command Handlers**: API endpoints are registered in `app/src-tauri/src/lib.rs` and implemented in `app/src-tauri/src/commands/`.
 4. **Verification**: Always run `cargo test` in `app/src-tauri` and `pnpm build` in `app` after making changes to verify compilation and test integrity.
+
+---
+
+## Context Progress & Implementation Status
+
+* **Client-Side Media Categorization Filter**: Implemented pure client-side media filtering (All, Videos, Photos) in `FileExplorer.tsx` using React `useMemo` caching to filter extensions (`.mp4`, `.mkv`, `.avi`, `.mov`, `.webm` for videos; `.jpg`, `.jpeg`, `.png`, `.webp`, `.gif`, `.heic` for photos) without triggering network re-fetches over VPN connections. Includes natural fallback state for empty filter results.

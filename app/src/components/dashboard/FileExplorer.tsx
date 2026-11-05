@@ -9,6 +9,7 @@ import { FileListItem } from './FileListItem';
 
 type SortField = 'name' | 'size' | 'date';
 type SortDirection = 'asc' | 'desc';
+type MediaFilter = 'all' | 'video' | 'photo';
 
 interface FileExplorerProps {
     files: TelegramFile[];
@@ -62,6 +63,7 @@ export function FileExplorer({
 }: FileExplorerProps) {
     const [sortField, setSortField] = useState<SortField>('name');
     const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
+    const [mediaFilter, setMediaFilter] = useState<MediaFilter>('all');
     const [contextMenu, setContextMenu] = useState<{ x: number; y: number; file: TelegramFile } | null>(null);
 
     const parentRef = useRef<HTMLDivElement>(null);
@@ -80,8 +82,18 @@ export function FileExplorer({
 
     const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
 
+    const filteredFiles = useMemo(() => {
+        if (mediaFilter === 'all') return files;
+        return files.filter(file => {
+            const ext = file.name.split('.').pop()?.toLowerCase();
+            if (mediaFilter === 'video') return ['mp4', 'mkv', 'avi', 'mov', 'webm'].includes(ext || '');
+            if (mediaFilter === 'photo') return ['jpg', 'jpeg', 'png', 'webp', 'gif', 'heic'].includes(ext || '');
+            return true;
+        });
+    }, [files, mediaFilter]);
+
     const sortedFiles = useMemo(() => {
-        return [...files].sort((a, b) => {
+        return [...filteredFiles].sort((a, b) => {
             let comparison = 0;
             switch (sortField) {
                 case 'name':
@@ -96,7 +108,7 @@ export function FileExplorer({
             }
             return sortDirection === 'asc' ? comparison : -comparison;
         });
-    }, [files, sortField, sortDirection]);
+    }, [filteredFiles, sortField, sortDirection]);
 
 
     const gridRows = useMemo(() => {
@@ -188,10 +200,42 @@ export function FileExplorer({
                 if (e.target === e.currentTarget) onSelectionClear();
             }}
         >
-            {viewMode === 'grid' ? (
-                <>
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-4 select-none">
+                <div className="inline-flex p-1 bg-telegram-surface border border-telegram-border rounded-xl">
+                    <button
+                        onClick={() => setMediaFilter('all')}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                            mediaFilter === 'all'
+                                ? 'bg-telegram-primary text-black shadow-sm font-semibold'
+                                : 'text-telegram-subtext hover:text-telegram-text hover:bg-white/5'
+                        }`}
+                    >
+                        All
+                    </button>
+                    <button
+                        onClick={() => setMediaFilter('video')}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                            mediaFilter === 'video'
+                                ? 'bg-telegram-primary text-black shadow-sm font-semibold'
+                                : 'text-telegram-subtext hover:text-telegram-text hover:bg-white/5'
+                        }`}
+                    >
+                        Videos
+                    </button>
+                    <button
+                        onClick={() => setMediaFilter('photo')}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                            mediaFilter === 'photo'
+                                ? 'bg-telegram-primary text-black shadow-sm font-semibold'
+                                : 'text-telegram-subtext hover:text-telegram-text hover:bg-white/5'
+                        }`}
+                    >
+                        Photos
+                    </button>
+                </div>
 
-                    <div className="flex items-center gap-2 mb-4 text-xs text-telegram-subtext">
+                {viewMode === 'grid' && (
+                    <div className="flex items-center gap-2 text-xs text-telegram-subtext">
                         <span>Sort by:</span>
                         <button
                             onClick={() => handleSort('name')}
@@ -212,8 +256,17 @@ export function FileExplorer({
                             Date <SortIcon field="date" />
                         </button>
                     </div>
+                )}
+            </div>
 
-
+            {filteredFiles.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-20 text-center">
+                    <p className="text-telegram-subtext text-sm">
+                        No files found matching this media category
+                    </p>
+                </div>
+            ) : viewMode === 'grid' ? (
+                <>
                     <div
                         className="relative w-full"
                         style={{ height: `${gridVirtualizer.getTotalSize()}px` }}
