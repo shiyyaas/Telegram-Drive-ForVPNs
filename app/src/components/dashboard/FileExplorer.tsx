@@ -6,6 +6,7 @@ import { EmptyState } from './EmptyState';
 import { TelegramFile } from '../../types';
 import { ContextMenu } from './ContextMenu';
 import { FileListItem } from './FileListItem';
+import { COMMON_EXTENSION_SETS } from '../../utils/fileExtensions';
 
 type SortField = 'name' | 'size' | 'date';
 type SortDirection = 'asc' | 'desc';
@@ -82,12 +83,14 @@ export function FileExplorer({
 
     const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
 
+    // Performance optimization: Use pre-computed Set O(1) lookups instead of allocating
+    // inline arrays and performing O(k) linear searches for every file in the directory
     const filteredFiles = useMemo(() => {
         if (mediaFilter === 'all') return files;
         return files.filter(file => {
-            const ext = file.name.split('.').pop()?.toLowerCase();
-            if (mediaFilter === 'video') return ['mp4', 'mkv', 'avi', 'mov', 'webm'].includes(ext || '');
-            if (mediaFilter === 'photo') return ['jpg', 'jpeg', 'png', 'webp', 'gif', 'heic'].includes(ext || '');
+            const ext = file.name.split('.').pop()?.toLowerCase() || '';
+            if (mediaFilter === 'video') return COMMON_EXTENSION_SETS.VIDEOS.has(ext);
+            if (mediaFilter === 'photo') return COMMON_EXTENSION_SETS.IMAGES.has(ext);
             return true;
         });
     }, [files, mediaFilter]);

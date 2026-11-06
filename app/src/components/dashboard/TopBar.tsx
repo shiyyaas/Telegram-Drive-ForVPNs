@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { HardDrive, LayoutGrid, Sun, Moon, Search, X } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 
@@ -14,7 +15,9 @@ interface TopBarProps {
     onSearchChange: (term: string) => void;
 }
 
-export function TopBar({
+// Memoized to prevent unnecessary re-renders of the top bar header and action buttons
+// during frequent polling updates (e.g. 5-second bandwidth stats queries) or queue mutations.
+export const TopBar = memo(function TopBar({
     currentFolderName, selectedIds, onShowMoveModal, onBulkDownload, onBulkDelete,
     onDownloadFolder, viewMode, setViewMode, searchTerm, onSearchChange
 }: TopBarProps) {
@@ -102,4 +105,4 @@ export function TopBar({
             </div>
         </header>
     )
-}
+});
