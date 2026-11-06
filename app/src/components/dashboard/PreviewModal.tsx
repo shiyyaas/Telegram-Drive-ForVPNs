@@ -1,9 +1,12 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, lazy, Suspense } from 'react';
 import { X, File } from 'lucide-react';
 import { api } from '../../services/api';
 import { TelegramFile } from '../../types';
 import { COMMON_EXTENSION_SETS } from '../../utils/fileExtensions';
-import PdfViewer from './PdfViewer';
+
+// Performance optimization: Lazy-load PdfViewer (and heavy pdfjs-dist ~650kB)
+// so that initial page bundle is not bloated when user doesn't preview a PDF.
+const PdfViewer = lazy(() => import('./PdfViewer'));
 
 interface PreviewModalProps {
     file: TelegramFile;
@@ -46,7 +49,20 @@ export function PreviewModal({ file, onClose, activeFolderId }: PreviewModalProp
 
     // PDF gets its own full-screen viewer
     if (isPdf && !loading && !error && src) {
-        return <PdfViewer url={src} fileName={file.name} onClose={onClose} />;
+        return (
+            <Suspense
+                fallback={
+                    <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-50">
+                        <div className="text-white text-center">
+                            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-4" />
+                            <p>Loading PDF Viewer...</p>
+                        </div>
+                    </div>
+                }
+            >
+                <PdfViewer url={src} fileName={file.name} onClose={onClose} />
+            </Suspense>
+        );
     }
 
     return (
