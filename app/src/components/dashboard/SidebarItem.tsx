@@ -20,6 +20,7 @@ export const SidebarItem = memo(function SidebarItem({ icon: Icon, label, active
     const [isOver, setIsOver] = useState(false);
 
     return (
+        <div className="relative group">
         <button
             onClick={onClick}
             onDragEnter={(e) => {
@@ -55,20 +56,27 @@ export const SidebarItem = memo(function SidebarItem({ icon: Icon, label, active
                     onDelete();
                 }
             }}
-            className={`group w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150 ${active
+            className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-telegram-primary ${active
                 ? 'bg-telegram-primary/10 text-telegram-primary'
                 : isOver
                     ? 'bg-telegram-primary/30 text-telegram-text ring-2 ring-telegram-primary scale-[1.02] shadow-lg'
                     : 'text-telegram-subtext hover:bg-telegram-hover hover:text-telegram-text'
-                }`}
+                } ${onDelete ? 'pr-8' : ''}`}
         >
             <Icon className={`w-4 h-4 ${isOver ? 'text-telegram-primary' : ''}`} />
             <span className="flex-1 text-left truncate">{label}</span>
-            {onDelete && (
-                <div onClick={(e) => { e.stopPropagation(); onDelete(); }} className="opacity-0 group-hover:opacity-100 p-1 hover:text-red-400">
-                    <Plus className="w-3 h-3 rotate-45" />
-                </div>
-            )}
         </button>
+        {onDelete && (
+            <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); onDelete(); }}
+                aria-label={`Delete folder ${label}`}
+                title={`Delete folder ${label}`}
+                className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 p-1 rounded hover:text-red-400 text-telegram-subtext hover:bg-white/5 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400"
+            >
+                <Plus className="w-3 h-3 rotate-45" />
+            </button>
+        )}
+        </div>
     )
 });
