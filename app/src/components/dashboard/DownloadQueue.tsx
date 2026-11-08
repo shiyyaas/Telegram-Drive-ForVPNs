@@ -14,7 +14,11 @@ export function DownloadQueue({ items, onClearFinished, onCancelAll }: DownloadQ
     const completedCount = items.filter(i => i.status === 'success').length;
 
     return (
-        <div className="fixed bottom-4 right-4 w-80 bg-telegram-surface border border-telegram-border rounded-xl shadow-2xl overflow-hidden z-[100]">
+        <div
+            role="region"
+            aria-label="Download queue"
+            className="fixed bottom-4 right-4 w-80 bg-telegram-surface border border-telegram-border rounded-xl shadow-2xl overflow-hidden z-[100]"
+        >
             <div className="p-3 border-b border-telegram-border bg-telegram-hover flex justify-between items-center">
                 <div className="flex items-center gap-2">
                     <Download className="w-4 h-4 text-telegram-secondary" />
@@ -29,7 +33,8 @@ export function DownloadQueue({ items, onClearFinished, onCancelAll }: DownloadQ
                     {activeCount > 0 && (
                         <button
                             onClick={onCancelAll}
-                            className="text-xs text-red-400 hover:text-red-300 flex items-center gap-1 transition-colors"
+                            aria-label="Cancel all active downloads"
+                            className="text-xs text-red-400 hover:text-red-300 flex items-center gap-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400 rounded px-1 py-0.5"
                             title="Cancel all active downloads"
                         >
                             <XCircle className="w-3.5 h-3.5" />
@@ -37,7 +42,11 @@ export function DownloadQueue({ items, onClearFinished, onCancelAll }: DownloadQ
                         </button>
                     )}
                     {completedCount > 0 && (
-                        <button onClick={onClearFinished} className="text-xs text-telegram-primary hover:text-telegram-text transition-colors">
+                        <button
+                            onClick={onClearFinished}
+                            aria-label="Clear completed downloads"
+                            className="text-xs text-telegram-primary hover:text-telegram-text transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-telegram-primary rounded px-1 py-0.5"
+                        >
                             Clear
                         </button>
                     )}
