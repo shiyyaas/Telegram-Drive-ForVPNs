@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
+import { useState, useMemo, useCallback, useRef, useEffect, memo } from 'react';
 import { Plus, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { FileCard } from './FileCard';
@@ -57,7 +57,9 @@ function useGridColumns(containerRef: React.RefObject<HTMLDivElement | null>) {
     return { columns, containerWidth };
 }
 
-export function FileExplorer({
+// Memoized to prevent re-rendering the entire explorer and recalculating virtualizers
+// during periodic bandwidth polling (every 5s) or queue status updates in Dashboard.
+export const FileExplorer = memo(function FileExplorer({
     files, loading, error, viewMode, selectedIds, activeFolderId,
     onFileClick, onDelete, onDownload, onPreview, onManualUpload, onSelectionClear, onToggleSelection, onDrop, onDragStart, onDragEnd
 }: FileExplorerProps) {
@@ -415,4 +417,4 @@ export function FileExplorer({
             )}
         </div>
     )
-}
+});
