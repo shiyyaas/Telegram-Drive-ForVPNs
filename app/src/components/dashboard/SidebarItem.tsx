@@ -5,9 +5,9 @@ interface SidebarItemProps {
     icon: React.ElementType;
     label: string;
     active: boolean;
-    onClick: () => void;
-    onDrop: (e: React.DragEvent) => void;
-    onDelete?: () => void;
+    onClick: (folderId: number | null) => void;
+    onDrop: (e: React.DragEvent, folderId: number | null) => void;
+    onDelete?: (id: number, name: string) => void;
     folderId: number | null;
 }
 
@@ -15,14 +15,15 @@ interface SidebarItemProps {
  * SidebarItem - Pure DOM event-based drop handling
  * 
  * Wrapped in React.memo to prevent unnecessary sidebar item re-renders during periodic bandwidth polling and selection updates.
+ * Callbacks receive folderId and label to allow parents to pass stable callback references.
  */
-export const SidebarItem = memo(function SidebarItem({ icon: Icon, label, active = false, onClick, onDrop, onDelete }: SidebarItemProps) {
+export const SidebarItem = memo(function SidebarItem({ icon: Icon, label, active = false, onClick, onDrop, onDelete, folderId }: SidebarItemProps) {
     const [isOver, setIsOver] = useState(false);
 
     return (
         <div className="relative group">
         <button
-            onClick={onClick}
+            onClick={() => onClick(folderId)}
             onDragEnter={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
@@ -48,12 +49,12 @@ export const SidebarItem = memo(function SidebarItem({ icon: Icon, label, active
                 e.preventDefault();
                 e.stopPropagation();
                 setIsOver(false);
-                if (onDrop) onDrop(e);
+                if (onDrop) onDrop(e, folderId);
             }}
             onContextMenu={(e) => {
-                if (onDelete) {
+                if (onDelete && folderId !== null) {
                     e.preventDefault();
-                    onDelete();
+                    onDelete(folderId, label);
                 }
             }}
             className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-telegram-primary ${active
@@ -66,10 +67,10 @@ export const SidebarItem = memo(function SidebarItem({ icon: Icon, label, active
             <Icon className={`w-4 h-4 ${isOver ? 'text-telegram-primary' : ''}`} />
             <span className="flex-1 text-left truncate">{label}</span>
         </button>
-        {onDelete && (
+        {onDelete && folderId !== null && (
             <button
                 type="button"
-                onClick={(e) => { e.stopPropagation(); onDelete(); }}
+                onClick={(e) => { e.stopPropagation(); onDelete(folderId, label); }}
                 aria-label={`Delete folder ${label}`}
                 title={`Delete folder ${label}`}
                 className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 p-1 rounded hover:text-red-400 text-telegram-subtext hover:bg-white/5 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400"
