@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, memo } from 'react';
 import { HardDrive, Folder, Plus, RefreshCw, LogOut } from 'lucide-react';
 import { SidebarItem } from './SidebarItem';
 import { BandwidthWidget } from './BandwidthWidget';
@@ -18,7 +18,10 @@ interface SidebarProps {
     bandwidth: BandwidthStats | null;
 }
 
-export function Sidebar({
+// Memoized to prevent re-rendering the sidebar when parent states change (such as file selections
+// or queue status changes in Dashboard). Passing stable callback references (setActiveFolderId, onDrop,
+// onDelete) to SidebarItem preserves SidebarItem's React.memo caching across renders.
+export const Sidebar = memo(function Sidebar({
     folders, activeFolderId, setActiveFolderId, onDrop, onDelete, onCreate,
     isSyncing, isConnected, onSync, onLogout, bandwidth
 }: SidebarProps) {
@@ -50,8 +53,8 @@ export function Sidebar({
                         icon={HardDrive}
                         label="Saved Messages"
                         active={activeFolderId === null}
-                        onClick={() => setActiveFolderId(null)}
-                        onDrop={(e: React.DragEvent) => onDrop(e, null)}
+                        onClick={setActiveFolderId}
+                        onDrop={onDrop}
                         folderId={null}
                     />
                     {folders.map(folder => (
@@ -60,9 +63,9 @@ export function Sidebar({
                             icon={Folder}
                             label={folder.name}
                             active={activeFolderId === folder.id}
-                            onClick={() => setActiveFolderId(folder.id)}
-                            onDrop={(e: React.DragEvent) => onDrop(e, folder.id)}
-                            onDelete={() => onDelete(folder.id, folder.name)}
+                            onClick={setActiveFolderId}
+                            onDrop={onDrop}
+                            onDelete={onDelete}
                             folderId={folder.id}
                         />
                     ))}
@@ -129,4 +132,4 @@ export function Sidebar({
 
         </aside>
     )
-}
+});
