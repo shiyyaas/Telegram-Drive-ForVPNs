@@ -28,6 +28,18 @@ export function PreviewModal({ file, onClose, activeFolderId }: PreviewModalProp
     const isImage = COMMON_EXTENSION_SETS.IMAGES.has(ext);
 
     useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                e.stopPropagation();
+                onClose();
+            }
+        };
+        window.addEventListener('keydown', handleKeyDown, true);
+        return () => window.removeEventListener('keydown', handleKeyDown, true);
+    }, [onClose]);
+
+    useEffect(() => {
         const load = async () => {
             setLoading(true);
             setError(null);
@@ -66,11 +78,19 @@ export function PreviewModal({ file, onClose, activeFolderId }: PreviewModalProp
     }
 
     return (
-        <div className="fixed inset-0 z-[150] bg-black/90 flex items-center justify-center p-4 backdrop-blur-sm" onClick={onClose}>
+        <div
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Preview: ${file.name}`}
+            className="fixed inset-0 z-[150] bg-black/90 flex items-center justify-center p-4 backdrop-blur-sm"
+            onClick={onClose}
+        >
             <div className="relative max-w-5xl w-full max-h-screen flex flex-col items-center justify-center" onClick={e => e.stopPropagation()}>
                 <button
                     onClick={onClose}
-                    className="absolute -top-12 right-0 p-2 bg-black/60 hover:bg-black/80 rounded-full transition-colors"
+                    aria-label="Close preview"
+                    title="Close preview"
+                    className="absolute -top-12 right-0 p-2 bg-black/60 hover:bg-black/80 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
                     style={{ color: '#ffffff' }}
                 >
                     <X className="w-6 h-6" />
